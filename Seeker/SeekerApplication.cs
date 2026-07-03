@@ -244,15 +244,6 @@ namespace Seeker
 
             //need search response and enqueue download action...
             //SeekerState.SoulseekClient = new SoulseekClient(new SoulseekClientOptions(messageTimeout: 30000, enableListener: false, autoAcknowledgePrivateMessages: false, acceptPrivateRoomInvitations:PreferencesState.AllowPrivateRoomInvitations)); //Enable Listener is False.  Default is True.
-            #if DEBUG
-                var _capRoot = Application.Context.GetExternalFilesDir(null)?.AbsolutePath;
-                if (_capRoot != null)
-                {
-                    Seeker.Debug.SearchCaptureStore.Configure(
-                        System.IO.Path.Combine(_capRoot, "search_captures"),
-                        Seeker.Debug.DebugSecrets.SeekerEncryptKey);
-                }
-            #endif
             #if MOCK
                 SeekerState.SoulseekClient = new MockSoulseekClient();
                 SharingService.TurnOnSharing();

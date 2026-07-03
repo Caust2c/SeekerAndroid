@@ -2321,19 +2321,6 @@ namespace Seeker
                     {
                         SeekerApplication.Toaster.ShowToast(SeekerApplication.GetString(Resource.String.no_search_results), ToastLength.Short);
                     }
-#if DEBUG && !MOCK
-                    if (!t.IsCanceled && t.IsCompletedSuccessfully && t.Result.Item2 != null && t.Result.Item2.Count > 0)
-                    {
-                        try
-                        {
-                            Seeker.Debug.SearchCaptureStore.Save(searchString, t.Result.Item2);
-                        }
-                        catch (System.Exception ex)
-                        {
-                            Logger.Debug("SearchCaptureStore save failed: " + ex);
-                        }
-                    }
-#endif
                     searchTab.LastSearchResultsCount = searchTab.SearchResponses.Count;
 
                     if (fromWishlist)
