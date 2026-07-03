@@ -263,6 +263,7 @@ namespace Seeker
                         addressResolver: ResolveAddressAsync,
                         userInfoResolver: UserInfoResponder.HandleRequest));
             #endif
+            NetworkStateService.RegisterDefaultNetworkCallback(this);
             SetDiagnosticState(PreferencesState.LogDiagnostics);
             SeekerState.SoulseekClient.UserStatisticsChanged += SoulseekClient_UserDataReceived;
             SeekerState.SoulseekClient.UserStatusChanged += UserStatusDeduplicator.Instance.OnUserStatusChanged;
@@ -292,8 +293,8 @@ namespace Seeker
 
             UPnpManager.Context = this;
             UPnpManager.Instance.SearchAndSetMappingIfRequired();
-            SimpleHelpers.STRINGS_KBS = this.Resources.GetString(Resource.String.kilobytes_per_second);
-            SimpleHelpers.STRINGS_KHZ = this.Resources.GetString(Resource.String.kilohertz);
+            SimpleHelpers.STRINGS_KBS = TryGetStringOr(Resource.String.kilobytes_per_second, "kbps");
+            SimpleHelpers.STRINGS_KHZ = TryGetStringOr(Resource.String.kilohertz, "kHz");
 
             SimpleHelpers.UserListService = UserListService.Instance;
         }
@@ -634,6 +635,25 @@ namespace Seeker
             return SeekerApplication.ApplicationContext.GetString(resId);
         }
 
+        /// <summary>
+        /// Resolve a string resource, falling back to a hardcoded default if the lookup throws
+        /// (e.g. Resources.NotFoundException from a stale resource-ID mismatch after an incomplete
+        /// deploy / partial install). A trivial units string must never be allowed to crash
+        /// Application.OnCreate and brick app startup. We still log so the real frequency is visible.
+        /// </summary>
+        private string TryGetStringOr(int resId, string fallback)
+        {
+            try
+            {
+                return this.Resources.GetString(resId);
+            }
+            catch (Exception e)
+            {
+                Logger.Firebase("TryGetStringOr failed for resId 0x" + resId.ToString("x8") + ": " + e.Message);
+                return fallback;
+            }
+        }
+
         public static void SetUpLoginContinueWith(Task t)
         {
             if (t == null)
@@ -681,7 +701,7 @@ namespace Seeker
                         foreach (UserListItem item in CommonState.UserList)
                         {
                             Logger.Debug("adding user: " + item.Username);
-                            SeekerState.SoulseekClient.WatchUserAsync(item.Username).ContinueWith(UpdateUserInfo);
+                            SeekerState.SoulseekClient.WatchUserAsync(item.Username).ContinueWith((Task<UserData> userDataTask) => UpdateUserInfo(userDataTask, item.Username));
                         }
                     }
 
@@ -761,42 +781,34 @@ namespace Seeker
         /// <summary>
         /// UserStatusChanged will not get called until an actual change. hence this call..
         /// </summary>
-        /// <param name="t"></param>
-        private static void UpdateUserInfo(Task<UserData> t)
+        /// <param name="task"></param>
+        public static void UpdateUserInfo(Task<UserData> task, string suppliedUsername)
         {
             try
             {
                 Logger.Debug("Update User Info Received");
-                if (t.IsCompletedSuccessfully)
+                if (task.IsCompletedSuccessfully)
                 {
-                    string username = t.Result.Username;
-                    Logger.Debug("Update User Info: " + username + " status: " + t.Result.Status.ToString());
+                    string username = task.Result.Username;
+                    Logger.Debug("Update User Info: " + username + " status: " + task.Result.Status.ToString());
                     if (UserListService.Instance.ContainsUser(username))
                     {
-                        UserListService.Instance.AddUser(t.Result, t.Result.Status);
+                        UserListService.Instance.AddUser(task.Result, task.Result.Status);
                     }
 
 
                 }
-                else if (t.Exception?.InnerException is UserNotFoundException)
+                else if (task.Exception?.InnerException is UserNotFoundException)
                 {
-                    if (t.Exception.InnerException.Message.Contains("User ") && t.Exception.InnerException.Message.Contains("does not exist"))
+                    if (UserListService.Instance.ContainsUser(suppliedUsername))
                     {
-                        string username = t.Exception.InnerException.Message.Split(null)[1];
-                        if (UserListService.Instance.ContainsUser(username))
-                        {
-                            UserListService.Instance.SetDoesNotExist(username);
-                        }
-                    }
-                    else
-                    {
-                        Logger.Firebase("unexcepted error message - " + t.Exception.InnerException.Message);
+                        UserListService.Instance.SetDoesNotExist(suppliedUsername);
                     }
                 }
                 else
                 {
                     //timeout
-                    Logger.Firebase("UpdateUserInfo case 3 " + t.Exception.Message);
+                    Logger.Firebase("UpdateUserInfo case 3 " + task.Exception.Message);
                 }
             }
             catch (Exception e)

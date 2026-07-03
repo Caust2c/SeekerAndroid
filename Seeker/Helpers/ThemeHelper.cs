@@ -6,47 +6,6 @@ namespace Seeker
 {
     public static class ThemeHelper
     {
-        public const string ClassicPurple = "Classic Purple";
-        public const string Grey = "Grey";
-        public const string Blue = "Blue";
-        public const string Red = "Red";
-        public const string AmoledClassicPurple = "Amoled - Classic Purple";
-        public const string AmoledGrey = "Amoled - Grey";
-
-        public static DayThemeType FromDayThemeTypeString(string themeTypeString)
-        {
-            switch (themeTypeString)
-            {
-                case ClassicPurple:
-                    return DayThemeType.ClassicPurple;
-                case Grey:
-                    return DayThemeType.Grey;
-                case Blue:
-                    return DayThemeType.Blue;
-                case Red:
-                    return DayThemeType.Red;
-                default:
-                    throw new Exception("unknown");
-            }
-        }
-
-        public static string ToDayThemeString(DayThemeType dayTheme)
-        {
-            switch (dayTheme)
-            {
-                case DayThemeType.ClassicPurple:
-                    return ClassicPurple;
-                case DayThemeType.Grey:
-                    return Grey;
-                case DayThemeType.Blue:
-                    return Blue;
-                case DayThemeType.Red:
-                    return Red;
-                default:
-                    throw new Exception("unknown");
-            }
-        }
-
         public static int ToDayThemeProper(DayThemeType dayTheme)
         {
             switch (dayTheme)
@@ -54,54 +13,11 @@ namespace Seeker
                 case DayThemeType.ClassicPurple:
                     return Resource.Style.DefaultLight;
                 case DayThemeType.Grey:
-                    return Resource.Style.DefaultDark_Grey; //TODO
+                    return Resource.Style.DefaultLight_Grey;
                 case DayThemeType.Blue:
                     return Resource.Style.DefaultLight_Blue;
                 case DayThemeType.Red:
                     return Resource.Style.DefaultLight_Red;
-                default:
-                    throw new Exception("unknown");
-            }
-        }
-
-        public static NightThemeType FromNightThemeTypeString(string themeTypeString)
-        {
-            switch (themeTypeString)
-            {
-                case ClassicPurple:
-                    return NightThemeType.ClassicPurple;
-                case Grey:
-                    return NightThemeType.Grey;
-                case Blue:
-                    return NightThemeType.Blue;
-                case Red:
-                    return NightThemeType.Red;
-                case AmoledClassicPurple:
-                    return NightThemeType.ClassicPurple;
-                case AmoledGrey:
-                    return NightThemeType.AmoledGrey;
-                default:
-                    throw new Exception("unknown");
-            }
-        }
-
-
-        public static string ToNightThemeString(NightThemeType nightTheme)
-        {
-            switch (nightTheme)
-            {
-                case NightThemeType.ClassicPurple:
-                    return ClassicPurple;
-                case NightThemeType.Grey:
-                    return Grey;
-                case NightThemeType.Blue:
-                    return Blue;
-                case NightThemeType.Red:
-                    return Red;
-                case NightThemeType.AmoledClassicPurple:
-                    return ClassicPurple;
-                case NightThemeType.AmoledGrey:
-                    return AmoledGrey;
                 default:
                     throw new Exception("unknown");
             }
@@ -118,7 +34,7 @@ namespace Seeker
                 case NightThemeType.Blue:
                     return Resource.Style.DefaultDark_Blue;
                 case NightThemeType.Red:
-                    return Resource.Style.DefaultDark_Blue; //doesnt exist
+                    return Resource.Style.DefaultDark_Red;
                 case NightThemeType.AmoledClassicPurple:
                     return Resource.Style.Amoled;
                 case NightThemeType.AmoledGrey:
@@ -147,9 +63,15 @@ namespace Seeker
                     switch (PreferencesState.NightModeVariant)
                     {
                         case NightThemeType.ClassicPurple:
+                        case NightThemeType.AmoledClassicPurple:
                             return ThemeHelper.ToDayThemeProper(DayThemeType.ClassicPurple);
                         case NightThemeType.Blue:
                             return ThemeHelper.ToDayThemeProper(DayThemeType.Blue);
+                        case NightThemeType.Red:
+                            return ThemeHelper.ToDayThemeProper(DayThemeType.Red);
+                        case NightThemeType.Grey:
+                        case NightThemeType.AmoledGrey:
+                            return ThemeHelper.ToDayThemeProper(DayThemeType.Grey);
                         default:
                             return ThemeHelper.ToDayThemeProper(DayThemeType.ClassicPurple);
                     }
@@ -169,6 +91,10 @@ namespace Seeker
                             return ThemeHelper.ToNightThemeProper(NightThemeType.ClassicPurple);
                         case DayThemeType.Blue:
                             return ThemeHelper.ToNightThemeProper(NightThemeType.Blue);
+                        case DayThemeType.Red:
+                            return ThemeHelper.ToNightThemeProper(NightThemeType.Red);
+                        case DayThemeType.Grey:
+                            return ThemeHelper.ToNightThemeProper(NightThemeType.Grey);
                         default:
                             return ThemeHelper.ToNightThemeProper(NightThemeType.ClassicPurple);
                     }

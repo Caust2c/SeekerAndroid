@@ -39,20 +39,6 @@ namespace Seeker
         private static System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> ProgressUpdatedThrottler = new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>();
         public const int THROTTLE_PROGRESS_UPDATED_RATE = 200;//in ms;
 
-        public override void SetMenuVisibility(bool menuVisible)
-        {
-            //this is necessary if programmatically moving to a tab from another activity..
-            if (menuVisible)
-            {
-                var navigator = SeekerState.MainActivityRef?.FindViewById<BottomNavigationView>(Resource.Id.navigation);
-                if (navigator != null)
-                {
-                    navigator.Menu.GetItem(2).SetCheckable(true);
-                    navigator.Menu.GetItem(2).SetChecked(true);
-                }
-            }
-            base.SetMenuVisibility(menuVisible);
-        }
 
 
         public override void OnCreateOptionsMenu(IMenu menu, MenuInflater inflater)
@@ -941,6 +927,12 @@ namespace Seeker
         public static bool ForceOutIfZeroSelected = true;
         public static void ToggleItemBatchSelect(TransferAdapterRecyclerVersion recyclerTransferAdapter, int pos)
         {
+            // Row clicks are posted to the main looper, so one can arrive after the action
+            // mode was already finished and nulled out. Ignore it.
+            if (TransfersActionMode == null)
+            {
+                return;
+            }
             var item = TransferItems.TransferItemManagerWrapped.GetItemAtUserIndex(pos);
             if (item == null)
             {

@@ -78,8 +78,7 @@ namespace Seeker
                 if (!string.IsNullOrEmpty(legacyUploadDataDirectory))
                 {
                     var uploadDir = new UploadDirectoryEntry(new UploadDirectoryInfo(legacyUploadDataDirectory, fromTree, false, false, null));
-                    UploadDirectories = new List<UploadDirectoryEntry>();
-                    UploadDirectories.Add(uploadDir);
+                    SetDirectories(new List<UploadDirectoryEntry> { uploadDir });
 
                     SaveToSharedPreferences(sharedPreferences);
                     var editor = sharedPreferences.Edit();
@@ -88,13 +87,13 @@ namespace Seeker
                 }
                 else
                 {
-                    UploadDirectories = new List<UploadDirectoryEntry>();
+                    SetDirectories(null);
                 }
             }
             else
             {
                 var infos = SerializationHelper.DeserializeFromString<List<UploadDirectoryInfo>>(sharedDirInfo);
-                UploadDirectories = infos.Select(info => new UploadDirectoryEntry(info)).ToList();
+                SetDirectories(infos.Select(info => new UploadDirectoryEntry(info)));
             }
         }
 
@@ -112,10 +111,78 @@ namespace Seeker
             }
         }
 
-        public static String UploadDataDirectoryUri = null;
-        public static bool UploadDataDirectoryUriIsFromTree = true;
+        // Copy-on-write: UploadDirectories is shared across the UI thread and multiple ThreadPool
+        // background threads (folder add/remove, parse/rescan).
+        private static volatile List<UploadDirectoryEntry> _uploadDirectories = new List<UploadDirectoryEntry>();
+        private static readonly object _uploadDirectoriesWriteLock = new object();
 
-        public static List<UploadDirectoryEntry> UploadDirectories;
+        public static List<UploadDirectoryEntry> UploadDirectories => _uploadDirectories;
+
+        /// <summary>
+        /// Replace the whole directory list (used on restore). Snapshots the source so the caller
+        /// can't mutate it out from under readers afterwards.
+        /// </summary>
+        public static void SetDirectories(IEnumerable<UploadDirectoryEntry> entries)
+        {
+            lock (_uploadDirectoriesWriteLock)
+            {
+                var list = entries == null
+                    ? new List<UploadDirectoryEntry>()
+                    : new List<UploadDirectoryEntry>(entries);
+                RecomputeSubdirFlags(list);
+                _uploadDirectories = list;
+            }
+        }
+
+        public static void AddDirectory(UploadDirectoryEntry entry)
+        {
+            lock (_uploadDirectoriesWriteLock)
+            {
+                var copy = new List<UploadDirectoryEntry>(_uploadDirectories);
+                copy.Add(entry);
+                RecomputeSubdirFlags(copy);
+                _uploadDirectories = copy;
+            }
+        }
+
+        public static bool RemoveDirectory(UploadDirectoryEntry entry)
+        {
+            lock (_uploadDirectoriesWriteLock)
+            {
+                var copy = new List<UploadDirectoryEntry>(_uploadDirectories);
+                bool removed = copy.Remove(entry);
+                if (removed)
+                {
+                    RecomputeSubdirFlags(copy);
+                    _uploadDirectories = copy;
+                }
+                return removed;
+            }
+        }
+
+        public static void ClearDirectories()
+        {
+            lock (_uploadDirectoriesWriteLock)
+            {
+                _uploadDirectories = new List<UploadDirectoryEntry>();
+            }
+        }
+
+        /// <summary>
+        /// Atomically remove <paramref name="oldEntry"/> and add <paramref name="newEntry"/> in a
+        /// single swap (the reselect case), so readers never observe an intermediate state.
+        /// </summary>
+        public static void ReplaceDirectory(UploadDirectoryEntry oldEntry, UploadDirectoryEntry newEntry)
+        {
+            lock (_uploadDirectoriesWriteLock)
+            {
+                var copy = new List<UploadDirectoryEntry>(_uploadDirectories);
+                copy.Remove(oldEntry);
+                copy.Add(newEntry);
+                RecomputeSubdirFlags(copy);
+                _uploadDirectories = copy;
+            }
+        }
 
         public static bool IsFromTree(string presentablePath)
         {
@@ -238,14 +305,22 @@ namespace Seeker
             return interestedVolnames;
         }
 
-        public static List<string> PresentableNameLockedDirectories = new List<string>();
-        public static List<string> PresentableNameHiddenDirectories = new List<string>();
+        public static List<string> PresentableNameLockedDirectories { get; private set; } = new List<string>();
+        public static List<string> PresentableNameHiddenDirectories { get; private set; } = new List<string>();
 
-        public static void UpdateWithDocumentFileAndErrorStates()
+        public static void RecomputeDirectoryState()
         {
-            for (int i = 0; i < UploadDirectories.Count; i++)
+            ResolveDocumentFilesAndErrorStates();
+            RebuildLockedAndHiddenPrefixLists();
+        }
+
+        private static void ResolveDocumentFilesAndErrorStates()
+        {
+            // Snapshot once so a concurrent copy-on-write swap can't tear Count vs. [i].
+            var dirs = _uploadDirectories;
+            for (int i = 0; i < dirs.Count; i++)
             {
-                UploadDirectoryEntry entry = UploadDirectories[i];
+                UploadDirectoryEntry entry = dirs[i];
 
                 Android.Net.Uri uploadDirUri = Android.Net.Uri.Parse(entry.Info.UploadDataDirectoryUri);
                 try
@@ -275,29 +350,109 @@ namespace Seeker
                     entry.Info.ErrorState = UploadDirectoryError.Unknown;
                 }
             }
+        }
 
-            for (int i = 0; i < UploadDirectories.Count; i++)
+        public static bool IsNestedUnder(Android.Net.Uri childUri, Android.Net.Uri parentUri)
+        {
+            string child = childUri?.LastPathSegment;
+            string parent = parentUri?.LastPathSegment;
+            if (string.IsNullOrEmpty(child) || string.IsNullOrEmpty(parent))
             {
-                UploadDirectoryEntry entry = UploadDirectories[i];
+                return false;
+            }
+            if (child.Length <= parent.Length || !child.StartsWith(parent, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            // Require a real path boundary right after the parent id, so "Music" doesn't match "Music2": either the
+            // next char is the path separator, or the parent is a volume root ending in ':' (e.g. "primary:").
+            char boundary = child[parent.Length];
+            return boundary == '/' || parent.EndsWith(":", StringComparison.Ordinal);
+        }
+
+        public static List<UploadDirectoryEntry> GetDirectoriesGroupedForDisplay()
+        {
+            var dirs = _uploadDirectories;
+            var ordered = new List<UploadDirectoryEntry>(dirs.Count);
+            var included = new HashSet<UploadDirectoryEntry>();
+
+            // iterate over roots
+            foreach (var root in dirs)
+            {
+                if (root.IsSubdir)
+                {
+                    continue;
+                }
+
+                var rootUri = Android.Net.Uri.Parse(root.Info.UploadDataDirectoryUri);
+                ordered.Add(root);
+                included.Add(root);
+
+                // grab children of root
+                var descendants = new List<UploadDirectoryEntry>();
+                foreach (var candidate in dirs)
+                {
+                    if (!ReferenceEquals(candidate, root)
+                        && IsNestedUnder(Android.Net.Uri.Parse(candidate.Info.UploadDataDirectoryUri), rootUri))
+                    {
+                        descendants.Add(candidate);
+                    }
+                }
+
+                // Order descendants by their document-id path so a parent always precedes its own children
+                descendants.Sort((a, b) => string.CompareOrdinal(
+                    Android.Net.Uri.Parse(a.Info.UploadDataDirectoryUri).LastPathSegment,
+                    Android.Net.Uri.Parse(b.Info.UploadDataDirectoryUri).LastPathSegment));
+
+                foreach (var descendant in descendants)
+                {
+                    ordered.Add(descendant);
+                    included.Add(descendant);
+                }
+            }
+
+            // just in case we missed anything
+            foreach (var entry in dirs)
+            {
+                if (!included.Contains(entry))
+                {
+                    ordered.Add(entry);
+                }
+            }
+
+            return ordered;
+        }
+
+        private static void RecomputeSubdirFlags(List<UploadDirectoryEntry> dirs)
+        {
+            for (int i = 0; i < dirs.Count; i++)
+            {
+                UploadDirectoryEntry entry = dirs[i];
                 var ourUri = Android.Net.Uri.Parse(entry.Info.UploadDataDirectoryUri);
 
-                for (int j = 0; j < UploadDirectories.Count; j++)
+                entry.IsSubdir = false;
+                for (int j = 0; j < dirs.Count; j++)
                 {
                     if (i != j)
                     {
-                        if (ourUri.LastPathSegment.Contains(Android.Net.Uri.Parse(UploadDirectories[j].Info.UploadDataDirectoryUri).LastPathSegment))
+                        if (IsNestedUnder(ourUri, Android.Net.Uri.Parse(dirs[j].Info.UploadDataDirectoryUri)))
                         {
                             entry.IsSubdir = true;
                         }
                     }
                 }
             }
+        }
 
+        private static void RebuildLockedAndHiddenPrefixLists()
+        {
             PresentableNameLockedDirectories.Clear();
             PresentableNameHiddenDirectories.Clear();
-            for (int i = 0; i < UploadDirectories.Count; i++)
+            // Snapshot once so a concurrent copy-on-write swap can't tear Count vs. [i].
+            var dirs = _uploadDirectories;
+            for (int i = 0; i < dirs.Count; i++)
             {
-                UploadDirectoryEntry entry = UploadDirectories[i];
+                UploadDirectoryEntry entry = dirs[i];
                 if (!entry.Info.IsLocked && !entry.Info.IsHidden)
                 {
                     continue;
@@ -321,19 +476,27 @@ namespace Seeker
 
                     UploadDirectoryEntry ourTopLevelParent = null;
 
-                    for (int j = 0; j < UploadDirectories.Count; j++)
+                    for (int j = 0; j < dirs.Count; j++)
                     {
                         if (i != j)
                         {
-                            if (!UploadDirectories[j].IsSubdir && ourUri.LastPathSegment.Contains(Android.Net.Uri.Parse(UploadDirectories[j].Info.UploadDataDirectoryUri).LastPathSegment))
+                            if (!dirs[j].IsSubdir && IsNestedUnder(ourUri, Android.Net.Uri.Parse(dirs[j].Info.UploadDataDirectoryUri)))
                             {
-                                ourTopLevelParent = UploadDirectories[j];
+                                ourTopLevelParent = dirs[j];
                                 break;
                             }
                         }
                     }
 
-                    if (!entry.Info.HasError() && !ourTopLevelParent.Info.HasError())
+                    if (entry.Info.HasError())
+                    {
+                        // error adding dir
+                    }
+                    else if (ourTopLevelParent == null)
+                    {
+                        Logger.Firebase("RebuildLockedAndHiddenPrefixLists: subdir has no non-subdir parent: " + entry.Info.UploadDataDirectoryUri);
+                    }
+                    else if (!ourTopLevelParent.Info.HasError())
                     {
                         if (entry.Info.IsLocked)
                         {

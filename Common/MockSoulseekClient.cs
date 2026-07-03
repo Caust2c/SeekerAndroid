@@ -320,7 +320,7 @@ namespace Seeker
         public Func<string, string, CancellationToken?, Task>? SetRoomTickerAsyncHandler { get; set; }
 
         // --- Mutable properties ---
-        public SoulseekClientStates State { get; set; } = SoulseekClientStates.None;
+        public SoulseekClientStates State { get; set; } = SoulseekClientStates.Disconnected;
         public string Username { get; set; } = "mockUser";
         public string Address { get; set; } = "mock.server";
         public int? Port { get; set; } = 2242;
@@ -460,6 +460,19 @@ namespace Seeker
             Address = Address ?? "mock.server";
             ChangeState(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn, "Logged in");
             ServerInfoReceived?.Invoke(this, new ServerInfo(parentMinSpeed: 1, parentSpeedRatio: 1, wishlistInterval: 120));
+            RaisePrivilegedUserList();
+        }
+
+        private void RaisePrivilegedUserList()
+        {
+            if (_random.Next(0, 3) == 0)
+            {
+                RaisePrivilegedUserListReceived(new[] { Username, "test" });
+            } 
+            else
+            {
+                RaisePrivilegedUserListReceived(new[] { "test" });
+            }
         }
 
         public async Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
@@ -693,6 +706,14 @@ namespace Seeker
                     else if (roll < 40)
                     {
                         specialSuffix = "_timeout";
+                    }
+                    else if (roll < 45)
+                    {
+                        specialSuffix = "_slowtickers";
+                    }
+                    else if (roll < 50)
+                    {
+                        specialSuffix = "_notickers";
                     }
 
                 }
@@ -1935,6 +1956,8 @@ namespace Seeker
 
             bool longTickers = roomName.IndexOf("ticker", StringComparison.OrdinalIgnoreCase) >= 0;
             int tickerCount = longTickers ? _random.Next(20, 40) : _random.Next(0, 5);
+            tickerCount = roomName.Contains("_notickers") ? 0 : tickerCount;
+
             string[] tickerPool = longTickers ? _mockLongTickers : _mockMessages;
             var tickers = Enumerable.Range(0, tickerCount)
                 .Select(_ => new RoomTicker(
@@ -1944,7 +1967,8 @@ namespace Seeker
 
             _ = Task.Run(async () =>
             {
-                await Task.Delay(50).ConfigureAwait(false);
+                int delay = roomName.Contains("_slowtickers") ? 10_000 : 50;
+                await Task.Delay(delay).ConfigureAwait(false);
                 RaiseRoomTickerListReceived(new RoomTickerListReceivedEventArgs(roomName, tickers));
             });
 
@@ -2002,15 +2026,23 @@ namespace Seeker
             await Task.Delay(SimulatedDelayMs / 5).ConfigureAwait(false);
         }
 
-        public Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
+        public async Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
         {
-            if (ReconfigureOptionsAsyncHandler != null) return ReconfigureOptionsAsyncHandler(patch, cancellationToken);
+            if (ReconfigureOptionsAsyncHandler != null) return await ReconfigureOptionsAsyncHandler(patch, cancellationToken);
             Options = (Options ?? new SoulseekClientOptions()).With(
                 searchResponseResolver: patch.SearchResponseResolver,
                 browseResponseResolver: patch.BrowseResponseResolver,
                 enqueueDownload: patch.EnqueueDownload,
                 directoryContentsResolver: patch.DirectoryContentsResolver);
-            return Task.FromResult(true);
+            bool fast = _random.Next(0, 2) == 0;
+            bool fault = _random.Next(0, 4) == 0;
+            var delay = fast ? 100 : 2000;
+            await Task.Delay(delay).ConfigureAwait(false);
+            if (fault)
+            {
+                throw new Exception("Failed");
+            }
+            return true;
         }
 
         public async Task<RoomList> GetRoomListAsync(CancellationToken? cancellationToken = null)
@@ -2031,9 +2063,24 @@ namespace Seeker
 
         public async Task<UserData> WatchUserAsync(string username, CancellationToken? cancellationToken = null)
         {
-            if (WatchUserAsyncHandler != null) return await WatchUserAsyncHandler(username, cancellationToken);
-            await Task.Delay(SimulatedDelayMs / 2).ConfigureAwait(false);
-            return new UserData(username, UserPresence.Online, 0, 0, 0, 0, GenerateMockCountryCode());
+            var delay = getBimodalDelay(100, 5000);
+            await Task.Delay(delay).ConfigureAwait(false);
+            UserPresence userPresence = _random.Next(0, 3) switch
+            {
+                0 => UserPresence.Offline,
+                1 => UserPresence.Away,
+                2 => UserPresence.Online,
+                _ => UserPresence.Offline
+            };
+            if (username.Contains("doesnotexist") || (username.Contains("transient") && _random.Next(0,2) == 0))
+            {
+                throw new UserNotFoundException($"User {username} does not exist");
+            }
+            if (username.Contains("transient"))
+            {
+                throw new UserNotFoundException($"User {username} does not exist");
+            }
+            return new UserData(username, userPresence, _random.Next(0, 10000), _random.Next(0, 10000), _random.Next(0, 10000), _random.Next(0, 10000), GenerateMockCountryCode());
         }
 
         public async Task UnwatchUserAsync(string username, CancellationToken? cancellationToken = null)
@@ -2060,18 +2107,45 @@ namespace Seeker
             await Task.Delay(SimulatedDelayMs / 5).ConfigureAwait(false);
         }
 
-        public Task<int> GetPrivilegesAsync(CancellationToken? cancellationToken = null)
+        public async Task<int> GetPrivilegesAsync(CancellationToken? cancellationToken = null)
         {
-            if (GetPrivilegesAsyncHandler != null) return GetPrivilegesAsyncHandler(cancellationToken);
-            return Task.FromResult(0);
+            if (GetPrivilegesAsyncHandler != null) return await GetPrivilegesAsyncHandler(cancellationToken);
+            int wait = getBimodalDelay(100, 10000);
+            await Task.Delay(wait);
+            triggerFailure(4);
+            int seconds = 0;
+            int roll = _random.Next(0, 3);
+            if (roll == 0)
+            {
+                seconds = 3600 * _random.Next(2, 24);
+            } 
+            else if (roll == 1)
+            {
+                seconds = 3600 * 24 * _random.Next(2, 100);
+            }
+            return seconds;
+        }
+
+        private int getBimodalDelay(int fast = 100, int slow = 10_000)
+        {
+            bool isfast = _random.Next(0,2) == 0;
+            int wait = isfast ? fast : slow;
+            return wait;
+        }
+
+        private void triggerFailure(int chance = 4)
+        {
+            if (_random.Next(0,chance) == 0)
+            {
+                throw new Exception("failure");
+            }
         }
 
         public async Task<UserStatistics> GetUserStatisticsAsync(string username, CancellationToken? cancellationToken = null)
         {
             if (GetUserStatisticsAsyncHandler != null) return await GetUserStatisticsAsyncHandler(username, cancellationToken);
             // this will either be very slow or very fast to test it coming in before or after UserInfo
-            bool fast = _random.Next(0,2) == 0;
-            int wait = fast ? 100 : 10_000;
+            int wait = getBimodalDelay();
             await Task.Delay(wait);
             var userStats = new UserStatistics(username, _random.Next(100_000, 10_000_000), _random.Next(0, 100), _random.Next(0, 100_000), _random.Next(0, 10_000));
             this.UserStatisticsChanged?.Invoke(this, userStats);
