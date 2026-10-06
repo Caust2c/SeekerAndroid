@@ -122,6 +122,7 @@ namespace Seeker.Services
         {
             // Wake the native reader synchronously before the downloader deletes/replaces bytes.
             if (!ReferenceEquals(item, changed)) return;
+            bool cleared = changed.CancelAndClearFlag || !changed.InProcessing;
             source?.Close();
             handler.Post(() =>
             {
@@ -131,7 +132,7 @@ namespace Seeker.Services
                 ReleaseEngine();
                 resumePosition = 0;
                 statusResource = Resource.String.playback_waiting;
-                if (changed.CancelAndClearFlag || !changed.InProcessing) Close();
+                if (cleared) Close();
                 else Refresh();
             });
         }
