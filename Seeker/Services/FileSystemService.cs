@@ -302,17 +302,13 @@ namespace Seeker.Services
 
         private System.IO.Stream OpenIncompleteStreamInternal(Android.Net.Uri incompleteUri, long partialLength)
         {
-            if (PlatformInfo.UseLegacyStorage() && incompleteUri.Scheme == "file")
+            if (incompleteUri.Scheme == "file" && (PlatformInfo.UseLegacyStorage() || PreferencesState.EnableLivePlayback))
             {
                 string filePath = incompleteUri.Path;
-                if (partialLength > 0)
-                {
-                    return new System.IO.FileStream(filePath, System.IO.FileMode.Append, System.IO.FileAccess.Write, System.IO.FileShare.None);
-                }
-                else
-                {
-                    return System.IO.File.Create(filePath);
-                }
+                return new System.IO.FileStream(filePath,
+                    partialLength > 0 ? System.IO.FileMode.Append : System.IO.FileMode.Create,
+                    System.IO.FileAccess.Write,
+                    PreferencesState.EnableLivePlayback ? System.IO.FileShare.Read : System.IO.FileShare.None);
             }
             else
             {
@@ -330,6 +326,14 @@ namespace Seeker.Services
                 // for progress updates / total downloaded
                 return new PositionTrackingOutputStream(stream, partialLength);
             }
+        }
+
+        public System.IO.Stream OpenProgressiveRead(string uri)
+        {
+            var parsed = Android.Net.Uri.Parse(uri);
+            if (parsed?.Scheme != "file") return null;
+            return new System.IO.FileStream(parsed.Path, System.IO.FileMode.Open,
+                System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
         }
 
         /// <summary>

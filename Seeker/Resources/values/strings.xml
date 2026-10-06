@@ -996,4 +996,20 @@
     <string name="keywords_edit_user_info">profile bio</string>
     <string name="keywords_restore_defaults">reset factory</string>
 
+    <string name="enable_live_playback">Enable Live Playback</string>
+    <string name="live_playback_description">Play selected MP3 downloads in Seeker. Local files can begin after about 10 MB; other storage waits for completion. Playback pauses when Seeker enters the background.</string>
+    <string name="download_and_play">Download and play selected MP3</string>
+    <string name="miniplayer_play">Play</string>
+    <string name="miniplayer_pause">Pause</string>
+    <string name="miniplayer_close">Close</string>
+    <string name="miniplayer_playback_progress">Playback progress</string>
+    <string name="miniplayer_download_progress">Download progress</string>
+    <string name="miniplayer_download_percent" formatted="false">Downloaded: {0}%</string>
+    <string name="playback_waiting">Waiting for download</string>
+    <string name="playback_buffering">Buffering</string>
+    <string name="playback_paused">Paused</string>
+    <string name="playback_playing">Playing</string>
+    <string name="playback_finished">Finished</string>
+    <string name="playback_failed">Unable to play this file</string>
+    <string name="playback_download_failed">Download failed</string>
 </resources>

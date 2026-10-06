@@ -12,6 +12,7 @@ namespace Seeker
     {
         public static void PerformCleanupItem(TransferItem ti)
         {
+            DownloadService.Instance?.InvalidatePlaybackSource(ti);
             Logger.Debug("cleaning up: " + ti.Filename);
             DocumentFile parent = null;
             Android.Net.Uri parentIncompleteUri = Android.Net.Uri.Parse(ti.IncompleteParentUri);

@@ -184,6 +184,7 @@ namespace Seeker
 
             Services.DownloadService.Instance = new Services.DownloadService(Toaster, Services.FileSystemService.Instance, Services.SessionService.Instance, new Services.MainThreadRunner(), () => SeekerState.SoulseekClient, loggerBackend, new Services.AndroidNetworkStatus());
             Services.UserInfoPictureCacheService.Instance = new Services.UserInfoPictureCacheService();
+            Services.ProgressivePlaybackPlayer.Instance = new Services.ProgressivePlaybackPlayer(this);
 
 #if DEBUG
             Android.OS.StrictMode.SetThreadPolicy(

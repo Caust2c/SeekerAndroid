@@ -45,6 +45,34 @@ namespace Seeker.Services
 
         public event EventHandler<DownloadAddedEventArgs> DownloadAddedUINotify;
 
+        // Source notifications are separate from library success, which precedes SaveToFile.
+        public event EventHandler<TransferItem> PlaybackSourceChanged;
+        public event EventHandler<TransferItem> PlaybackSourceInvalidated;
+
+        public void InvalidatePlaybackSource(TransferItem item) =>
+            PlaybackSourceInvalidated?.Invoke(this, item);
+
+        public Task<TransferItem?> EnqueueFileForPlaybackAsync(FullFileInfo file, string username)
+        {
+            if (username == PreferencesState.Username)
+            {
+                toaster.ShowToastLong(StringKey.cannot_download_from_self);
+                return Task.FromResult<TransferItem?>(null);
+            }
+            return Task.Run(() =>
+            {
+                var info = AddTransfer(username, file.FullFileName, file.Size, int.MaxValue,
+                    file.Depth, false, file.wasFilenameLatin1Decoded, file.wasFolderLatin1Decoded, true);
+                var item = info?.TransferItemReference ?? TransferItems.TransferItemManagerDL
+                    .GetTransferItemWithIndexFromAll(file.FullFileName, username, out _);
+                if (info != null)
+                {
+                    StartDownloadsFireAndForget(new[] { info });
+                }
+                return item;
+            });
+        }
+
         /// <summary>
         /// Adds the files to the transfer list and kicks off the downloads.
         /// The returned task completes once the last file has been handed to the library.
@@ -444,6 +472,7 @@ namespace Seeker.Services
 
                     dlInfo.TransferItemReference.IncompleteUri = incompleteUri;
                     dlInfo.TransferItemReference.IncompleteParentUri = incompleteUriDirectory;
+                    PlaybackSourceChanged?.Invoke(this, dlInfo.TransferItemReference);
 
                     return soulseekClientFactory().DownloadAsync(
                         username: username,
@@ -855,6 +884,7 @@ namespace Seeker.Services
                 finally
                 {
                     e.dlInfo.TransferItemReference.InProcessing = false;
+                    PlaybackSourceChanged?.Invoke(this, e.dlInfo.TransferItemReference);
                 }
             });
             return continuationActionSaveFile;

@@ -107,6 +107,7 @@ namespace Common
         public static bool NotifyOnFolderCompleted = true;
         public static bool DisableDownloadToastNotification = true;
         public static bool MemoryBackedDownload = false;
+        public static bool EnableLivePlayback = false;
         public static bool TransferViewShowSizes = false;
         public static bool TransferViewShowSpeed = false;
         public static bool TransferViewShowTimeRemaining = false;
