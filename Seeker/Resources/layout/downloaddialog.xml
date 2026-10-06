@@ -135,6 +135,16 @@
             android:layout_marginStart="16dp"
             android:layout_marginEnd="16dp"
         />
+        <Button
+            android:id="@+id/buttonDownloadPlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:text="@string/download_and_play"
+            android:visibility="gone"
+            style="@style/SeekerButtonStyle"
+        />
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

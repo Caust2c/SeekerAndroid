@@ -51,6 +51,7 @@ namespace Seeker
 
         public static void RestoreTransferSettings(ISharedPreferences prefs)
         {
+            PreferencesState.EnableLivePlayback = prefs.GetBoolean(KeyConsts.M_EnableLivePlayback, false);
             PreferencesState.AutoClearCompleteDownloads = prefs.GetBoolean(KeyConsts.M_AutoClearComplete, false);
             PreferencesState.AutoClearCompleteUploads = prefs.GetBoolean(KeyConsts.M_AutoClearCompleteUploads, false);
             PreferencesState.TransferViewShowSizes = prefs.GetBoolean(KeyConsts.M_TransfersShowSizes, true);
@@ -849,6 +850,7 @@ namespace Seeker
                 editor.PutBoolean(KeyConsts.M_NoSubfolderForSingle,               PreferencesState.NoSubfolderForSingle);
                 editor.PutBoolean(KeyConsts.M_UseManualIncompleteDirectoryUri,    PreferencesState.OverrideDefaultIncompleteLocations);
                 editor.PutBoolean(KeyConsts.M_MemoryBackedDownload,               PreferencesState.MemoryBackedDownload);
+                editor.PutBoolean(KeyConsts.M_EnableLivePlayback,                PreferencesState.EnableLivePlayback);
                 editor.PutBoolean(KeyConsts.M_AutoClearComplete,                  PreferencesState.AutoClearCompleteDownloads);
                 editor.PutBoolean(KeyConsts.M_AutoRetryBackOnline,                PreferencesState.AutoRetryBackOnline);
                 // Search

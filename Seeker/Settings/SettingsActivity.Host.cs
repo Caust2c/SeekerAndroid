@@ -177,6 +177,8 @@ namespace Seeker
             PreferencesState.NoSubfolderForSingle = false;
             PreferencesState.OverrideDefaultIncompleteLocations = false;
             PreferencesState.MemoryBackedDownload = false;
+            PreferencesState.EnableLivePlayback = false;
+            Services.ProgressivePlaybackPlayer.Instance?.Close();
             PreferencesState.AutoClearCompleteDownloads = false;
             PreferencesState.AutoRetryBackOnline = true;
 

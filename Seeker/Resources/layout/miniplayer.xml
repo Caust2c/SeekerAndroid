@@ -1,0 +1,38 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/livePlayer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp"
+    android:background="?attr/dialog_background">
+    <TextView android:id="@+id/liveFilename"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:maxLines="1" android:ellipsize="end"
+        android:textColor="?attr/cellTextColor" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/liveStatus"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:textColor="?attr/cellTextColor" />
+        <Button android:id="@+id/livePlayPause"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="@string/miniplayer_play" style="@style/SeekerButtonStyle" />
+        <Button android:id="@+id/liveClose"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="@string/miniplayer_close" style="@style/SeekerButtonStyle" />
+    </LinearLayout>
+    <TextView android:id="@+id/liveElapsed"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="?attr/cellTextColor" />
+    <ProgressBar android:id="@+id/livePlaybackProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:contentDescription="@string/miniplayer_playback_progress" />
+    <TextView android:id="@+id/liveDownloadLabel"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="?attr/cellTextColor" />
+    <ProgressBar android:id="@+id/liveDownloadProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:max="100" android:contentDescription="@string/miniplayer_download_progress" />
+</LinearLayout>

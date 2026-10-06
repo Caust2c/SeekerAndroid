@@ -46,6 +46,20 @@ namespace Seeker.Settings.Rows
             // ============================== DOWNLOADS ==============================
             rows.Add(new HeaderRow { Id = "h.downloads", TitleRes = Resource.String.section_downloads });
 
+            rows.Add(new ToggleRow
+            {
+                Id = "downloads.live_playback",
+                TitleRes = Resource.String.enable_live_playback,
+                SubtitleRes = Resource.String.live_playback_description,
+                Getter = () => PreferencesState.EnableLivePlayback,
+                Setter = v =>
+                {
+                    PreferencesState.EnableLivePlayback = v;
+                    PreferencesManager.SaveBoolean(KeyConsts.M_EnableLivePlayback, v);
+                    if (!v) Seeker.Services.ProgressivePlaybackPlayer.Instance?.Close();
+                },
+            });
+
             rows.Add(new ValueRow
             {
                 Id = "downloads.folder",

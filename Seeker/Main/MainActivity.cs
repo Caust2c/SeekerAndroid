@@ -171,6 +171,7 @@ namespace Seeker
             base.OnCreate(savedInstanceState);
             //System.Threading.Thread.CurrentThread.Name = "Main Activity Thread";
             SetContentView(Resource.Layout.activity_main);
+            InitializeMiniplayer();
 
             // in horizontal mode this prevents content under the 3-button navigation bar
             AndroidX.Core.View.ViewCompat.SetOnApplyWindowInsetsListener(
@@ -523,6 +524,8 @@ namespace Seeker
             //so then the FragmentManager will be null among other things...
             SeekerState.MainActivityRef = this;
             base.OnStart();
+            ProgressivePlaybackPlayer.Instance.Changed += PlaybackChanged;
+            UpdateMiniplayer();
         }
         public static bool fromNotificationMoveToUploads = false;
         protected override void OnNewIntent(Intent intent)

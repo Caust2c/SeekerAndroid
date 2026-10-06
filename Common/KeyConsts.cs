@@ -2,6 +2,7 @@ namespace Common
 {
     public class KeyConsts
     {
+        public const string M_EnableLivePlayback = "enable_live_playback";
         public const string M_CurrentlyLoggedIn = "Momento_LoggedIn";
         public const string M_Username = "Momento_Username";
         public const string M_Password = "Momento_Password";
