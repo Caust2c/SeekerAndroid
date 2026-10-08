@@ -149,7 +149,6 @@ namespace Seeker
         }
 
         private Button downloadButton = null;
-        private Button playbackButton = null;
         private AndroidX.SwipeRefreshLayout.Widget.SwipeRefreshLayout swipeRefreshLayout = null;
 
         public override void OnViewCreated(View view, Bundle savedInstanceState)
@@ -179,14 +178,6 @@ namespace Seeker
 
             downloadButton = view.FindViewById<Button>(Resource.Id.buttonDownload);
             downloadButton.Click += Download_Click;
-            playbackButton = view.FindViewById<Button>(Resource.Id.buttonDownloadPlay);
-            playbackButton.Click += (s, e) =>
-            {
-                var files = GetFilesToDownload(true);
-                if (PreferencesState.EnableLivePlayback && files.Length == 1 &&
-                    files[0].FullFileName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
-                    DownloadWithContinuation(files, SearchResponse.Username, true);
-            };
 
             Button browseButton = view.FindViewById<Button>(Resource.Id.buttonBrowse);
             browseButton.Click += Browse_Click;
@@ -220,6 +211,13 @@ namespace Seeker
 
             ListView listView = view.FindViewById<ListView>(Resource.Id.listView1);
             listView.ItemClick += ListView_ItemClick;
+            view.FindViewById(Resource.Id.livePlaybackHint).Visibility =
+                PreferencesState.EnableLivePlayback ? ViewStates.Visible : ViewStates.Gone;
+            listView.ItemLongClick += (s, e) =>
+            {
+                e.Handled = true;
+                ToggleDownloadSelection(e.View, e.Position);
+            };
             listView.ChoiceMode = ChoiceMode.Multiple;
             UpdateListView();
             UpdateDownloadButtonText();
@@ -273,36 +271,42 @@ namespace Seeker
             }
         }
 
-        private void ListView_ItemClick(object sender, AdapterView.ItemClickEventArgs e)
+        private async void ListView_ItemClick(object sender, AdapterView.ItemClickEventArgs e)
         {
-            bool alreadySelected = this.customAdapter.SelectedPositions.Contains<int>(e.Position);
+            var file = SearchResponse.GetElementAtAdapterPosition(PreferencesState.HideLockedResultsInSearch, e.Position);
+            if (PreferencesState.EnableLivePlayback && file.Filename.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                Dismiss();
+                await ProgressivePlaybackPlayer.Instance.RequestAsync(BrowseUtils.GetFullFileInfos(new[] { file })[0], SearchResponse.Username);
+                return;
+            }
+            ToggleDownloadSelection(e.View, e.Position);
+        }
+
+        private void ToggleDownloadSelection(View row, int position)
+        {
+            bool alreadySelected = this.customAdapter.SelectedPositions.Contains<int>(position);
             if (!alreadySelected)
             {
 #pragma warning disable 0618
-                e.View.Background = Resources.GetDrawable(Resource.Color.batchSelectHighlight, this.Activity.Theme);
-                e.View.FindViewById(Resource.Id.mainDlLayout).Background = Resources.GetDrawable(Resource.Color.batchSelectHighlight, this.Activity.Theme);
+                row.Background = Resources.GetDrawable(Resource.Color.batchSelectHighlight, this.Activity.Theme);
+                row.FindViewById(Resource.Id.mainDlLayout).Background = Resources.GetDrawable(Resource.Color.batchSelectHighlight, this.Activity.Theme);
 #pragma warning restore 0618
-                e.View.FindViewById(Resource.Id.selectionCheck).Visibility = ViewStates.Visible;
-                this.customAdapter.SelectedPositions.Add(e.Position);
+                row.FindViewById(Resource.Id.selectionCheck).Visibility = ViewStates.Visible;
+                this.customAdapter.SelectedPositions.Add(position);
             }
             else
             {
-                e.View.Background = null;
-                e.View.FindViewById(Resource.Id.mainDlLayout).Background = null;
-                e.View.FindViewById(Resource.Id.selectionCheck).Visibility = ViewStates.Gone;
-                this.customAdapter.SelectedPositions.Remove(e.Position);
+                row.Background = null;
+                row.FindViewById(Resource.Id.mainDlLayout).Background = null;
+                row.FindViewById(Resource.Id.selectionCheck).Visibility = ViewStates.Gone;
+                this.customAdapter.SelectedPositions.Remove(position);
             }
             UpdateDownloadButtonText();
         }
 
         private void UpdateDownloadButtonText()
         {
-            if (playbackButton != null)
-            {
-                playbackButton.Visibility = PreferencesState.EnableLivePlayback ? ViewStates.Visible : ViewStates.Gone;
-                playbackButton.Enabled = customAdapter?.SelectedPositions.Count == 1 &&
-                    GetFilesToDownload(true)[0].FullFileName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase);
-            }
             if (this.customAdapter != null && this.customAdapter.SelectedPositions.Count > 0)
             {
                 downloadButton.Text = SeekerApplication.GetString(Resource.String.download_selected) + " (" + this.customAdapter.SelectedPositions.Count + ")";
@@ -329,7 +333,7 @@ namespace Seeker
             Dismiss();
         }
 
-        private void DownloadWithContinuation(FullFileInfo[] filesToDownload, string username, bool playback = false)
+        private void DownloadWithContinuation(FullFileInfo[] filesToDownload, string username)
         {
             if (SessionService.Instance.CurrentlyLoggedInButDisconnectedState())
             {
@@ -349,14 +353,14 @@ namespace Seeker
                         return; //dont dismiss dialog.  that only happens on success..
                     }
                     Logger.Debug("DownloadDialog Dl_Click");
-                    StartSelectedDownload(filesToDownload, username, playback);
+                    DownloadFiles(filesToDownload, username, false);
                     DismissOnUiThread();
                 }));
             }
             else
             {
                 Logger.Debug("DownloadDialog Dl_Click");
-                StartSelectedDownload(filesToDownload, username, playback);
+                DownloadFiles(filesToDownload, username, false);
                 Dismiss();
             }
         }
@@ -382,13 +386,6 @@ namespace Seeker
         private void DownloadFiles(FullFileInfo[] files, string username, bool queuePaused)
         {
             DownloadService.Instance.EnqueueFilesFireAndForget(files, queuePaused, username);
-        }
-
-        private void StartSelectedDownload(FullFileInfo[] files, string username, bool playback)
-        {
-            if (!playback) DownloadFiles(files, username, false);
-            else SeekerState.MainActivityRef?.RunOnUiThread(async () =>
-                await ProgressivePlaybackPlayer.Instance.RequestAsync(files[0], username));
         }
 
         /// <summary>

@@ -1,84 +1,102 @@
 # Progressive MP3 playback
 
-Enable **Enable Live Playback** in Downloads settings, select one MP3 in the
-search download dialog, and choose **Download and play selected MP3**. The normal
-download continues independently. Closing the player, changing tracks, losing
-audio focus, or leaving Seeker in the background does not cancel it.
+Enable **Enable Live Playback** in Downloads settings. Tap a single-MP3 search
+result to play it. For a result containing multiple tracks, tap the MP3 in its
+file list; expanded search rows also support direct playback. No additional
+"Download and play" button is involved.
 
-The player is application-owned; MainActivity binds a miniplayer outside its tab
-pager. Activity recreation rebinds the same session. Playback does not restore
-after process death and does not continue in the background. The overlay appears
-in MainActivity, not in separate activities such as Settings.
+Download remains a separate action: touch and hold a search result to open its
+file list, touch and hold tracks to select them, and use **Download selected**.
+The ordinary download-only behavior remains when Live Playback is disabled.
+Playback starts or attaches to the existing download; it does not create a
+second transfer. Closing the player does not cancel that download.
 
-## Storage and buffering
+## Growing downloads
 
-For direct `file:` downloads larger than 10 MiB, the source opens after at least
-10 MiB is readable. The platform MP3 decoder determines when preparation can
-finish. Files at or below that threshold, unknown sizes, memory-backed downloads,
-and `content:` document providers wait for download finalization. No HTTP server,
-streaming protocol, extra media dependency, or second download is involved.
+There is no minimum file size or 10 MB threshold. The player opens an available
+nonempty prefix and lets Android prepare the MP3 decoder. A 7 MB file with only
+3.5 MB downloaded exposes that entire prefix immediately. Reads at the current
+end wait for more bytes, then continue as the sequential download grows. Only
+successful finalization produces permanent EOF. Download failure or pause does
+not discard already-readable audio; playback can consume it before buffering.
+The peer must supply the MP3 headers and audio frames before sound can begin.
 
-The enabled file writer permits readers. GrowingFileReader checks actual file
-length rather than assuming network progress implies visibility. A positional
-read beyond the current prefix waits for growth and wakes on Close or finalization.
-Pause releases the media engine and saves its playback position; Play prepares
-the source again and seeks to that position. This also makes Pause responsive
-while the platform is preparing or buffering.
+The media source advertises unknown length while streaming, rather than the
+remote file's future size. This avoids advertising missing tail metadata during
+preparation. Download progress and playback position are separate; duration may
+remain unknown for some unfinished MP3s.
 
-DownloadService returns the actual transfer identity for the selected file and
-publishes source changes after incomplete-location setup and after its save
-continuation. Soulseek library success alone is not final-file readiness.
-TransferCleanup invalidates playback before removing/replacing incomplete bytes.
-Size-mismatch replacement resets playback position. Normal completion keeps an
-already-open local reader alive across copy/delete finalization; a session that
-has not opened a reader uses FinalUri instead.
+Direct files and seekable `content:` document-provider descriptors are supported.
+A provider that exposes only a pipe cannot serve random reads and reports a
+playback error. The existing incomplete download is the only audio copy. New
+MP3 transfers use file-backed storage while Live Playback is enabled, even if
+the memory-backed download preference is set. A memory-backed transfer already
+running before the toggle was enabled must finish before it has a readable file.
 
-Download progress is byte-based, separate from playback time. It is not an
-estimate of playable duration for variable-bitrate MP3s.
+## Player lifecycle
 
-## Cache scope
+Native MediaPlayer operations and storage reads run on a dedicated playback
+thread. The miniplayer reads an immutable state snapshot on the UI thread.
+Pause, Close, track replacement and transfer invalidation wake pending reads
+before releasing the native engine. Stale callbacks cannot start an old track.
+Pause saves the last polled position and releases the engine; Play prepares the
+source again. Position restoration depends on the platform extractor's seeking
+support for the unfinished MP3.
 
-This implementation reads the existing download and owns no disposable audio
-copies. An audio cache and the proposed 100/250/500 MB/1 GB limit are deferred
-until a separate cache is justified. Completed music and resumable partial files
-must never be pruned to meet a playback-cache budget. Existing transfer cleanup
-and persistence remain authoritative.
+The application owns the session, and MainActivity displays the miniplayer
+outside its tab pager. Rotation rebinds the session. Playback pauses when Seeker
+enters the background or loses audio focus, and when headphones are unplugged.
+There is no background playback service or process-death restoration.
 
-## Validation and remaining device checks
+The reader holds its descriptor across normal copy/delete or move finalization.
+DownloadService signals completion after the final URI is ready. Transfer cleanup
+invalidates the source before deleting or replacing incomplete bytes.
+The existing download service remains responsible for retries and cleanup.
 
-The development machine has .NET 9 and Android API 35 tooling; the repository
-requires SDK/workload 10.0.401 and targets Android API 36. A full unsigned app
-build was attempted and blocked by the missing SDK. The project targets have not
-been changed and no app was installed or signed.
+Debug StrictMode logging remains enabled, but its red screen-flash penalty has
+been removed. Playback failures log their exception/native error under the
+`SeekerPlayback` logcat tag.
 
-The actual platform-independent Common project (including the download service
-changes and Soulseek.NET reference) compiled successfully with the installed
-SDK, with its existing nullable/style warnings. Workload resolution was disabled
-for that build process only; no SDK configuration was edited.
+## Validation
 
-GrowingFileReaderTests run in an isolated .NET 9 harness using the repository
-source: temporary EOF, growth, Close, finalization, threshold boundaries, and
-reader identity across rename/replacement. The new media backend also compiles
-in an isolated harness against installed Android API 35 references and project
-contract stubs. These checks are not a full project build or device playback test.
+The .NET 10/API 36 Android project compiles and produces an unsigned debug APK
+with zero build errors (existing project/package warnings remain). All six GrowingFileReader regression
+tests pass, covering growth after temporary EOF, a 3.5 MB prefix, cancellation,
+finalization, and descriptor identity across file rename/replacement.
 
-Before upstream submission, run the normal build and repository tests with the
-required tools, then validate on API 23 and a current Android device:
+Validation commands:
 
-- CBR and VBR MP3s over/under the threshold, including large ID3 tags. A platform
-  extractor may request unavailable tail data and delay preparation until the
-  download finishes; early start is not yet verified on-device.
-- Catch-up buffering, a stalled peer, download pause/resume, failure/retry, and
-  size-mismatch replacement.
-- Copy/delete completion with an open reader, source deletion, auto-clear of
-  completed transfer rows, and restored completed transfer records.
-- Close and Pause during preparation/buffering; rapidly select another track.
-- Tab navigation, rotation, Settings navigation, true backgrounding, headphone
-  unplugging, audio-focus loss, and process death.
-- Completion-only fallback for SAF document providers and memory-backed mode;
-  unreadable/revoked final URIs must show playback failure without altering the
-  transfer.
+```powershell
+dotnet build Seeker/Seeker.csproj -c Debug -t:Package -p:BuildingInsideVisualStudio=true -p:BuildProjectReferences=true -p:EmbedAssembliesIntoApk=true -p:AndroidPackageFormats=apk --no-restore
+dotnet test UnitTestCommon/UnitTestCommon.csproj --filter FullyQualifiedName~GrowingFileReaderTests
+```
 
-The Android MediaPlayer/MediaDataSource growing-file behavior remains a device
-validation requirement. Do not treat successful managed-reader tests as proof
-that every Android MP3 extractor begins playback at the threshold.
+The Package command deliberately omits signing and installation. Android requires
+a signature to install an APK; a debug-key signature is sufficient for phone testing.
+
+The reported startup crash has not been reproduced: no ADB device was connected
+during this revision. Reader tests and compilation do not establish that an
+Android device decodes a growing MP3 successfully. Device checks still required:
+
+1. Enable Live Playback and tap a fresh 7 MB MP3. Audio must begin before download
+   completion. Repeat with a larger track, CBR/VBR encodings, and large ID3 tags.
+2. Limit or pause the download after roughly half arrives. Already-buffered audio
+   should play, then wait at the edge. Resume the transfer and confirm continuation.
+3. Pause/Play, Close during preparation/buffering, switch tracks rapidly, rotate,
+   change tabs, background the app, and disconnect headphones.
+4. Repeat using a normal Android document-folder download destination; verify
+   completion and retry do not unexpectedly stop or mix playback sources.
+5. Verify touch-and-hold selection plus Download does not start playback, and
+   disabling Live Playback restores normal tap-to-select behavior.
+
+Capture diagnostics during a reproduction (PowerShell, one line):
+
+```powershell
+adb logcat -v threadtime SeekerPlayback:V AndroidRuntime:E mono-rt:E '*:S' > playback-log.txt
+```
+
+For a crash already recorded by the phone:
+
+```powershell
+adb logcat -b crash -d > playback-crash.txt
+```

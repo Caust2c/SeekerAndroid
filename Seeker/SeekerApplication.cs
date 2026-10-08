@@ -194,7 +194,6 @@ namespace Seeker
                     .DetectNetwork()
                     .DetectCustomSlowCalls()
                     .PenaltyLog()
-                    .PenaltyFlashScreen()
                     .PenaltyDeathOnNetwork()
                     .Build());
 

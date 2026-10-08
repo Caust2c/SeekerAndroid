@@ -10,11 +10,11 @@ namespace Common
     /// </summary>
     public sealed class GrowingFileReader : IDisposable
     {
-        public const long StartThresholdBytes = 10L * 1024 * 1024;
         private readonly Stream stream;
         private readonly object gate = new object();
         private bool complete;
         private bool closed;
+        private bool disposed;
         private bool waiting;
 
         public GrowingFileReader(Stream stream)
@@ -23,9 +23,6 @@ namespace Common
                 throw new ArgumentException("Playback requires a readable, seekable file.", nameof(stream));
             this.stream = stream;
         }
-
-        public static bool CanStart(long size, long readableBytes, bool finalized) =>
-            finalized || (size > StartThresholdBytes && readableBytes >= StartThresholdBytes);
 
         public bool IsWaiting { get { lock (gate) return waiting; } }
         public long Length { get { lock (gate) return closed ? 0 : stream.Length; } }
@@ -69,13 +66,24 @@ namespace Common
             }
         }
 
-        public void Dispose()
+        // Cancellation must not wait for native MediaPlayer commands or close a provider
+        // descriptor on the UI thread. The owner disposes the stream after release.
+        public void Cancel()
         {
             lock (gate)
             {
-                if (closed) return;
                 closed = true;
                 Monitor.PulseAll(gate);
+            }
+        }
+
+        public void Dispose()
+        {
+            Cancel();
+            lock (gate)
+            {
+                if (disposed) return;
+                disposed = true;
                 stream.Dispose();
             }
         }

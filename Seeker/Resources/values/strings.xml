@@ -997,8 +997,8 @@
     <string name="keywords_restore_defaults">reset factory</string>
 
     <string name="enable_live_playback">Enable Live Playback</string>
-    <string name="live_playback_description">Play selected MP3 downloads in Seeker. Local files can begin after about 10 MB; other storage waits for completion. Playback pauses when Seeker enters the background.</string>
-    <string name="download_and_play">Download and play selected MP3</string>
+    <string name="live_playback_tap_hint">Tap an MP3 to play. Touch and hold to select for Download.</string>
+    <string name="live_playback_description">Tap an MP3 to play while it downloads. Touch and hold to select files for Download. Playback buffers when it catches up and pauses when Seeker enters the background.</string>
     <string name="miniplayer_play">Play</string>
     <string name="miniplayer_pause">Pause</string>
     <string name="miniplayer_close">Close</string>

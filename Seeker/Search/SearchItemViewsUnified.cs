@@ -4,6 +4,9 @@ using Android.Graphics;
 using Android.Views;
 using Android.Widget;
 using Common;
+using Common.Browse;
+using Seeker.Services;
+using System;
 using Seeker.Extensions.SearchResponseExtensions;
 using Seeker.Helpers;
 using Seeker.Search;
@@ -25,6 +28,24 @@ namespace Seeker
 
     internal static class SearchItemViewExpandableHelper
     {
+        private static void BindFileActions(TextView view, Soulseek.File file, SearchResponse response)
+        {
+            view.Click += async (sender, args) =>
+            {
+                if (PreferencesState.EnableLivePlayback && file.Filename.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+                    await ProgressivePlaybackPlayer.Instance.RequestAsync(BrowseUtils.GetFullFileInfos(new[] { file })[0], response.Username);
+                else OpenDownloads(view);
+            };
+            view.LongClick += (sender, args) => { args.Handled = true; OpenDownloads(view); };
+        }
+
+        private static void OpenDownloads(View view)
+        {
+            var root = view.FindAncestor<ISearchItemViewBase>();
+            int index = root?.ViewHolder.BindingAdapterPosition ?? -1;
+            if (index >= 0) SearchFragment.GetSearchFragment().ShowDownloadDialog(index);
+        }
+
         public static int GetSeparatorColor(Context ctx)
         {
             TypedArray ta = ctx.ObtainStyledAttributes(new int[] { Resource.Attribute.expandableModernSeparatorColor });
@@ -52,6 +73,7 @@ namespace Seeker
                 UiHelpers.SetTextColor(tv, SeekerState.MainActivityRef);
                 tv.Text = SimpleHelpers.GetFileNameFromFile(f.Filename).ToString();
                 tv.SetPadding(0, 4, 0, 4);
+                BindFileActions(tv, f, item);
                 container.AddView(tv);
             }
         }
@@ -64,6 +86,7 @@ namespace Seeker
                 TextView tv = new TextView(SeekerState.MainActivityRef);
                 UiHelpers.SetTextColor(tv, SeekerState.MainActivityRef);
                 tv.Text = SimpleHelpers.GetFileNameFromFile(f.Filename).ToString();
+                BindFileActions(tv, f, item);
                 container.AddView(tv);
             }
         }

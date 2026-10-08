@@ -10,210 +10,231 @@ using System.Threading.Tasks;
 
 namespace Seeker.Services
 {
-    /// <summary>One foreground playback session. Downloads remain owned by DownloadService.</summary>
+    /// <summary>One foreground session; DownloadService owns the download.</summary>
     public sealed class ProgressivePlaybackPlayer : Java.Lang.Object, AudioManager.IOnAudioFocusChangeListener
     {
         public static ProgressivePlaybackPlayer Instance { get; set; }
         private readonly Context context;
-        private readonly Handler handler = new Handler(Looper.MainLooper);
+        private readonly Handler main = new Handler(Looper.MainLooper);
+        private readonly HandlerThread thread;
+        private readonly Handler handler;
         private readonly AudioManager audioManager;
         private readonly Action tick;
         private readonly NoisyReceiver noisyReceiver;
-        private TransferItem item;
+        private readonly object sourceGate = new object();
+        private GrowingFileReader activeReader;
+        private int generation;
+        private volatile TransferItem item;
+        // Only the playback thread calls the native player. UI reads a snapshot.
         private MediaPlayer player;
         private GrowingMp3DataSource source;
-        private bool prepared;
-        private bool preparing;
-        private bool wantsPlay;
-        private bool hasFocus;
-        private int generation;
-        private int resumePosition;
+        private bool prepared, wantsPlay, hasFocus, visible;
+        private string filename;
+        private int resumePosition, duration;
         private int statusResource = Resource.String.playback_waiting;
-
+        private sealed record State(bool Visible, string Filename, bool WantsPlay, int Position,
+            int Duration, int DownloadProgress, int StatusResource);
+        private volatile State state = new(false, null, false, 0, 0, 0, Resource.String.playback_waiting);
         public event EventHandler Changed;
-        public bool Visible { get; private set; }
-        public string Filename { get; private set; }
-        public bool WantsPlay => wantsPlay;
-        public int Position => prepared ? player.CurrentPosition : resumePosition;
-        public int Duration => prepared ? Math.Max(0, player.Duration) : 0;
-        public int DownloadProgress => item?.State.HasFlag(TransferStates.Succeeded) == true ? 100
-            : item?.Size > 0 ? (int)Math.Clamp(item.BytesTransferred * 100.0 / item.Size, 0, 100) : 0;
-        public int StatusResource => source?.Reader.IsWaiting == true && wantsPlay
-            ? Resource.String.playback_buffering : statusResource;
+        public bool Visible => state.Visible;
+        public string Filename => state.Filename;
+        public bool WantsPlay => state.WantsPlay;
+        public int Position => state.Position;
+        public int Duration => state.Duration;
+        public int DownloadProgress => state.DownloadProgress;
+        public int StatusResource => state.StatusResource;
 
         public ProgressivePlaybackPlayer(Context context)
         {
             this.context = context.ApplicationContext;
             audioManager = (AudioManager)this.context.GetSystemService(Context.AudioService);
-            tick = Refresh;
+            thread = new HandlerThread("SeekerPlayback");
+            thread.Start();
+            handler = new Handler(thread.Looper);
+            tick = () => Guard(Refresh);
             DownloadService.Instance.PlaybackSourceChanged += SourceChanged;
             DownloadService.Instance.PlaybackSourceInvalidated += SourceInvalidated;
             noisyReceiver = new NoisyReceiver(this);
             ContextCompat.RegisterReceiver(this.context, noisyReceiver,
                 new IntentFilter(AudioManager.ActionAudioBecomingNoisy), ContextCompat.ReceiverNotExported);
         }
+        private void Post(Action action) => handler.Post(() => Guard(action));
+        private void Guard(Action action)
+        {
+            try { action(); }
+            catch (Exception ex) { Fail(ex); }
+        }
+        // Wake native reads before queueing release. Also invalidates stale callbacks.
+        private int CancelReader()
+        {
+            lock (sourceGate)
+            {
+                generation++;
+                activeReader?.Cancel();
+                return generation;
+            }
+        }
+        private bool IsCurrent(int request) { lock (sourceGate) return request == generation; }
 
         public async Task RequestAsync(FullFileInfo file, string username)
         {
             if (!PreferencesState.EnableLivePlayback ||
                 !file.FullFileName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)) return;
-            Close();
-            int request = generation;
-            Filename = SimpleHelpers.GetFileNameFromFile(file.FullFileName).ToString();
-            Visible = true;
+            int request = CancelReader();
+            Post(() =>
+            {
+                if (!IsCurrent(request)) return;
+                Reset();
+                filename = SimpleHelpers.GetFileNameFromFile(file.FullFileName).ToString();
+                visible = wantsPlay = true;
+                statusResource = Resource.String.playback_waiting;
+                Refresh();
+            });
+            try
+            {
+                if (SessionService.Instance.CurrentlyLoggedInButDisconnectedState())
+                {
+                    if (!SessionService.Instance.ShowMessageAndCreateReconnectTask(false, out Task reconnect))
+                    {
+                        Post(() => { if (IsCurrent(request)) Reset(); });
+                        return;
+                    }
+                    await reconnect;
+                }
+                if (!IsCurrent(request)) return;
+                var transfer = await DownloadService.Instance.EnqueueFileForPlaybackAsync(file, username);
+                Post(() =>
+                {
+                    if (!IsCurrent(request)) return;
+                    if (transfer == null) { Reset(); return; }
+                    item = transfer;
+                    Refresh();
+                });
+            }
+            catch (Exception ex) { Post(() => { if (IsCurrent(request)) Fail(ex); }); }
+        }
+        public void Play() => Post(() =>
+        {
+            if (!visible || !PreferencesState.EnableLivePlayback) return;
             wantsPlay = true;
             statusResource = Resource.String.playback_waiting;
             Refresh();
-            try
-            {
-                var transfer = await DownloadService.Instance.EnqueueFileForPlaybackAsync(file, username);
-                if (request != generation) return;
-                if (transfer == null) { Close(); return; }
-                item = transfer;
-                Refresh();
-            }
-            catch (Exception ex)
-            {
-                if (request == generation) Fail(ex);
-            }
-        }
-
-        public void Play()
-        {
-            if (!Visible || !PreferencesState.EnableLivePlayback) return;
-            wantsPlay = true;
-            if (prepared) Start();
-            else
-            {
-                statusResource = Resource.String.playback_waiting;
-                Refresh();
-            }
-        }
-
+        });
         public void Pause()
         {
-            wantsPlay = false;
-            if (prepared) resumePosition = player.CurrentPosition;
-            // Close the data source before release, so a pending read cannot hold release up.
-            ReleaseEngine();
-            statusResource = Resource.String.playback_paused;
-            PublishState();
-        }
-
-        public void Close()
-        {
-            generation++;
-            preparing = false;
-            wantsPlay = false;
-            ReleaseEngine();
-            item = null;
-            resumePosition = 0;
-            Visible = false;
-            handler.RemoveCallbacks(tick);
-            PublishState();
-        }
-
-        private void SourceChanged(object sender, TransferItem changed) => handler.Post(() =>
-        {
-            if (ReferenceEquals(item, changed)) Refresh();
-        });
-
-        private void SourceInvalidated(object sender, TransferItem changed)
-        {
-            // Wake the native reader synchronously before the downloader deletes/replaces bytes.
-            if (!ReferenceEquals(item, changed)) return;
-            bool cleared = changed.CancelAndClearFlag || !changed.InProcessing;
-            source?.Close();
-            handler.Post(() =>
+            CancelReader();
+            Post(() =>
             {
-                if (!ReferenceEquals(item, changed)) return;
-                generation++;
-                preparing = false;
+                wantsPlay = false;
+                // Resume from the last poll, without a UI-thread native query.
                 ReleaseEngine();
-                resumePosition = 0;
-                statusResource = Resource.String.playback_waiting;
-                if (cleared) Close();
-                else Refresh();
+                statusResource = Resource.String.playback_paused;
+                PublishState();
             });
         }
-
-        private async void Refresh()
+        public void Close() { CancelReader(); Post(Reset); }
+        private void Reset()
+        {
+            wantsPlay = visible = false;
+            ReleaseEngine();
+            item = null;
+            resumePosition = duration = 0;
+            handler.RemoveCallbacks(tick);
+            PublishState();
+        }
+        private static bool Finalized(TransferItem transfer) => transfer != null && !transfer.InProcessing &&
+            transfer.State.HasFlag(TransferStates.Succeeded) && !string.IsNullOrEmpty(transfer.FinalUri);
+        private void SourceChanged(object sender, TransferItem changed)
+        {
+            if (!ReferenceEquals(item, changed)) return;
+            // Completion wakes the reader even if a native command is waiting on it.
+            if (Finalized(changed)) { lock (sourceGate) activeReader?.Complete(); }
+            Post(() => { if (ReferenceEquals(item, changed)) Refresh(); });
+        }
+        private void SourceInvalidated(object sender, TransferItem changed)
+        {
+            if (!ReferenceEquals(item, changed)) return;
+            bool cleared = changed.CancelAndClearFlag || !changed.InProcessing;
+            CancelReader();
+            Post(() =>
+            {
+                if (!ReferenceEquals(item, changed)) return;
+                ReleaseEngine();
+                resumePosition = duration = 0;
+                statusResource = Resource.String.playback_waiting;
+                if (cleared) Reset(); else Refresh();
+            });
+        }
+        private void Refresh()
         {
             handler.RemoveCallbacks(tick);
-            if (!Visible) return;
-            if (item?.CancelAndClearFlag == true) { Close(); return; }
-            bool finalized = item != null && !item.InProcessing &&
-                item.State.HasFlag(TransferStates.Succeeded) && !string.IsNullOrEmpty(item.FinalUri);
-            if (finalized) source?.Reader.Complete();
-            if (item?.Failed == true && !item.InProcessing)
+            if (!visible) return;
+            if (item?.CancelAndClearFlag == true) { Reset(); return; }
+            bool finalized = Finalized(item);
+            if (finalized) activeReader?.Complete();
+            if (wantsPlay && item != null && player == null)
             {
-                Pause();
-                statusResource = Resource.String.playback_download_failed;
-            }
-            if (wantsPlay && item != null && player == null && !preparing)
-            {
-                preparing = true;
-                int request = generation;
-                var selected = item;
-                long selectedSize = selected.Size;
-                string uri = finalized ? selected.FinalUri : selected.IncompleteUri;
-                try
+                int request;
+                lock (sourceGate) request = generation;
+                string uri = finalized ? item.FinalUri : item.IncompleteUri;
+                if (!string.IsNullOrEmpty(uri))
                 {
-                    // SAF providers are completion-only. Never probe storage on the UI thread.
-                    var reader = await Task.Run(() =>
+                    GrowingFileReader reader = null;
+                    try
                     {
-                        if (finalized || selectedSize <= GrowingFileReader.StartThresholdBytes ||
-                            string.IsNullOrEmpty(uri)) return null;
-                        var stream = FileSystemService.Instance.OpenProgressiveRead(uri);
-                        if (stream == null) return null;
-                        try
+                        if (!finalized)
                         {
-                            var growing = new GrowingFileReader(stream);
-                            if (GrowingFileReader.CanStart(selectedSize, growing.Length, false)) return growing;
-                            growing.Dispose();
-                            return null;
+                            var stream = FileSystemService.Instance.OpenProgressiveRead(uri);
+                            if (stream == null) throw new NotSupportedException("Storage does not support progressive reads.");
+                            try { reader = new GrowingFileReader(stream); }
+                            catch { stream.Dispose(); throw; }
+                            if (reader.Length == 0) { reader.Dispose(); reader = null; }
                         }
-                        catch { stream.Dispose(); throw; }
-                    });
-                    if (request != generation || !wantsPlay)
+                        if (finalized || reader != null)
+                        {
+                            lock (sourceGate)
+                            {
+                                if (request != generation) { reader?.Dispose(); return; }
+                                activeReader = reader;
+                            }
+                            Prepare(uri, reader, request);
+                        }
+                    }
+                    catch (System.IO.FileNotFoundException)
                     {
                         reader?.Dispose();
-                        return;
+                        // Source notification can precede creation or race finalization.
+                        if (finalized) throw;
                     }
-                    if (finalized || reader != null)
-                        Prepare(uri, reader, selectedSize);
+                    catch { reader?.Dispose(); throw; }
                 }
-                catch (System.IO.IOException ex)
-                {
-                    // The writer may not have opened yet, or completion may have moved the file.
-                    // The next source notification/tick rechecks the current URI.
-                    if (request == generation && (finalized || player != null)) Fail(ex);
-                }
-                catch (Exception ex) { if (request == generation) Fail(ex); }
-                finally { if (request == generation) preparing = false; }
+            }
+            if (prepared)
+            {
+                resumePosition = Math.Max(0, player.CurrentPosition);
+                duration = Math.Max(0, player.Duration);
             }
             PublishState();
-            if (Visible) handler.PostDelayed(tick, 500);
+            if (visible) handler.PostDelayed(tick, 500);
         }
-
-        private void Prepare(string uri, GrowingFileReader reader, long size)
+        private void Prepare(string uri, GrowingFileReader reader, int request)
         {
             var engine = new MediaPlayer();
             player = engine;
-            source = reader == null ? null : new GrowingMp3DataSource(reader, size);
+            source = reader == null ? null : new GrowingMp3DataSource(reader);
             engine.SetAudioAttributes(new AudioAttributes.Builder()
                 .SetUsage(AudioUsageKind.Media).SetContentType(AudioContentType.Music).Build());
-            engine.Prepared += (s, e) => handler.Post(() =>
+            engine.Prepared += (s, e) => Post(() =>
             {
-                if (!ReferenceEquals(player, engine)) return;
+                if (!ReferenceEquals(player, engine) || !IsCurrent(request)) return;
                 prepared = true;
                 if (resumePosition > 0) engine.SeekTo(resumePosition);
                 if (wantsPlay) Start();
-                PublishState();
+                Refresh();
             });
-            engine.Completion += (s, e) => handler.Post(() =>
+            engine.Completion += (s, e) => Post(() =>
             {
-                if (!ReferenceEquals(player, engine)) return;
+                if (!ReferenceEquals(player, engine) || !IsCurrent(request)) return;
                 wantsPlay = false;
                 resumePosition = 0;
                 ReleaseEngine();
@@ -223,20 +244,20 @@ namespace Seeker.Services
             engine.Error += (s, e) =>
             {
                 e.Handled = true;
-                handler.Post(() =>
+                var message = $"MediaPlayer error: {e.What}, extra: {e.Extra}";
+                Post(() =>
                 {
-                    if (ReferenceEquals(player, engine)) Fail(new InvalidOperationException("MediaPlayer error: " + e.What));
+                    if (ReferenceEquals(player, engine) && IsCurrent(request)) Fail(new InvalidOperationException(message));
                 });
             };
+            statusResource = Resource.String.playback_buffering;
+            PublishState();
             if (source != null) engine.SetDataSource(source);
             else engine.SetDataSource(context, Android.Net.Uri.Parse(uri));
-            statusResource = Resource.String.playback_buffering;
-            engine.PrepareAsync();
+            if (IsCurrent(request)) engine.PrepareAsync();
         }
-
         private void Start()
         {
-            // Legacy focus API covers the project's API 23 minimum without a new dependency.
 #pragma warning disable CS0618
             if (!hasFocus && audioManager.RequestAudioFocus(this, Android.Media.Stream.Music,
                 AudioFocus.Gain) != AudioFocusRequest.Granted)
@@ -246,48 +267,59 @@ namespace Seeker.Services
                 return;
             }
             hasFocus = true;
-            try
-            {
-                player.Start();
-                statusResource = Resource.String.playback_playing;
-            }
-            catch (Exception ex) { Fail(ex); }
+            player.Start();
+            statusResource = Resource.String.playback_playing;
         }
-
         private void ReleaseEngine()
         {
-            source?.Close();
-            var old = player;
-            player = null;
-            prepared = false;
-            old?.Release();
-            old?.Dispose();
-            source?.Dispose();
-            source = null;
-            if (hasFocus)
+            GrowingFileReader reader;
+            lock (sourceGate)
             {
+                reader = activeReader;
+                activeReader = null;
+                reader?.Cancel();
+            }
+            var old = player;
+            var oldSource = source;
+            player = null;
+            source = null;
+            prepared = false;
+            try { old?.Release(); }
+            finally
+            {
+                old?.Dispose();
+                oldSource?.Dispose();
+                reader?.Dispose();
+                if (hasFocus)
+                {
 #pragma warning disable CS0618
-                audioManager.AbandonAudioFocus(this);
+                    audioManager.AbandonAudioFocus(this);
 #pragma warning restore CS0618
-                hasFocus = false;
+                    hasFocus = false;
+                }
             }
         }
-
         private void Fail(Exception ex)
         {
-            Logger.Debug("Live playback failed: " + ex);
+            Android.Util.Log.Error("SeekerPlayback", ex.ToString());
             wantsPlay = false;
-            ReleaseEngine();
+            try { ReleaseEngine(); }
+            catch (Exception releaseError) { Android.Util.Log.Error("SeekerPlayback", releaseError.ToString()); }
             statusResource = Resource.String.playback_failed;
             PublishState();
         }
-
-        private void PublishState() => Changed?.Invoke(this, EventArgs.Empty);
+        private void PublishState()
+        {
+            int progress = item?.State.HasFlag(TransferStates.Succeeded) == true ? 100
+                : item?.Size > 0 ? (int)Math.Clamp(item.BytesTransferred * 100.0 / item.Size, 0, 100) : 0;
+            int status = activeReader?.IsWaiting == true && wantsPlay ? Resource.String.playback_buffering : statusResource;
+            state = new State(visible, filename, wantsPlay, resumePosition, duration, progress, status);
+            main.Post(() => Changed?.Invoke(this, EventArgs.Empty));
+        }
         public void OnAudioFocusChange(AudioFocus focusChange)
         {
-            if (focusChange != AudioFocus.Gain) handler.Post(Pause);
+            if (focusChange != AudioFocus.Gain) Pause();
         }
-
         private sealed class NoisyReceiver : BroadcastReceiver
         {
             private readonly ProgressivePlaybackPlayer owner;

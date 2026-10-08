@@ -331,7 +331,13 @@ namespace Seeker.Services
         public System.IO.Stream OpenProgressiveRead(string uri)
         {
             var parsed = Android.Net.Uri.Parse(uri);
-            if (parsed?.Scheme != "file") return null;
+            if (parsed?.Scheme == "content")
+            {
+                var descriptor = Android.App.Application.Context.ContentResolver.OpenFileDescriptor(parsed, "r");
+                if (descriptor == null) throw new System.IO.FileNotFoundException("Playback source is not available.");
+                return new SeekableDocumentReadStream(descriptor);
+            }
+            if (parsed?.Scheme != "file") throw new System.NotSupportedException("Unsupported playback URI.");
             return new System.IO.FileStream(parsed.Path, System.IO.FileMode.Open,
                 System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
         }

@@ -2,11 +2,15 @@ using Android.Views;
 using Android.Widget;
 using AndroidX.RecyclerView.Widget;
 using Common;
+using Common.Browse;
+using Seeker.Extensions.SearchResponseExtensions;
+using Seeker.Services;
 using Seeker.Helpers;
 using Seeker.Search;
 using Soulseek;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Seeker
 {
@@ -91,6 +95,13 @@ namespace Seeker
                 view.ApplyExpandableMode();
                 var mainLayout = view.FindViewById<LinearLayout>(Resource.Id.relativeLayout1);
                 mainLayout.Click += UnifiedRowClick;
+                mainLayout.LongClick += (sender, args) =>
+                {
+                    args.Handled = true;
+                    var root = (sender as View).FindAncestor<ISearchItemViewBase>();
+                    int index = root.ViewHolder.BindingAdapterPosition;
+                    if (index >= 0 && index < localDataSet.Count) GetSearchFragment().ShowDownloadDialog(index);
+                };
                 if (view.IsExpandable)
                 {
                     view.FindViewById<FrameLayout>(Resource.Id.expandClickArea).Click += UnifiedChevronClick;
@@ -106,10 +117,17 @@ namespace Seeker
             // Row click: relativeLayout1 fills the content area (chevron column has width=0 when hidden),
             // so this catches taps anywhere on the row that aren't on the chevron itself.
             // Parent chain in the unified XMLs: relativeLayout1 -> horizontal row -> item root (a SearchItemViewUnifiedBase).
-            private void UnifiedRowClick(object sender, EventArgs e)
+            private async void UnifiedRowClick(object sender, EventArgs e)
             {
                 var itemRoot = (sender as View).FindAncestor<ISearchItemViewBase>();
-                GetSearchFragment().ShowDownloadDialog(itemRoot.ViewHolder.BindingAdapterPosition);
+                int index = itemRoot.ViewHolder.BindingAdapterPosition;
+                if (index < 0 || index >= localDataSet.Count) return;
+                var response = localDataSet[index];
+                var files = response.GetFiles(PreferencesState.HideLockedResultsInSearch).ToArray();
+                if (PreferencesState.EnableLivePlayback && files.Length == 1 &&
+                    files[0].Filename.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+                    await ProgressivePlaybackPlayer.Instance.RequestAsync(BrowseUtils.GetFullFileInfos(files)[0], response.Username);
+                else GetSearchFragment().ShowDownloadDialog(index);
             }
 
             private SearchResultStyleEnum searchResultStyle;
