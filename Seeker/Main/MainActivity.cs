@@ -1190,7 +1190,7 @@ namespace Seeker
             return true;
         }
 
-        #if DEBUG
+        #if DEBUG && MOCK
         public override bool DispatchKeyEvent(KeyEvent e)
         {
             if (e.KeyCode == Keycode.VolumeUp)
@@ -1199,11 +1199,7 @@ namespace Seeker
             }
             else if (e.KeyCode == Keycode.VolumeDown)
             {
-#if MOCK
                 Seeker.Debug.MockTransferStress.Toggle();
-#else
-                SeekerState.SoulseekClient.ConnectAsync("slowtest", "slowpass");
-#endif
             }
             return base.DispatchKeyEvent(e);
         }
