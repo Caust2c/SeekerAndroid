@@ -32,7 +32,7 @@ namespace Seeker
         {
             view.Click += async (sender, args) =>
             {
-                if (PreferencesState.EnableLivePlayback && file.Filename.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+                if (PreferencesState.EnableLivePlayback && PlaybackFormats.SupportsProgressivePlayback(file.Filename))
                     await ProgressivePlaybackPlayer.Instance.RequestAsync(BrowseUtils.GetFullFileInfos(new[] { file })[0], response.Username);
                 else OpenDownloads(view);
             };

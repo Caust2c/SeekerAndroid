@@ -441,9 +441,9 @@ namespace Seeker.Services
                     waitUntilEnqueue.TrySetResult(true);
                 }
             });
-            // Live MP3s must have an append-only file that the player can read.
+            // Live audio must have an append-only file that the player can read.
             if (PreferencesState.MemoryBackedDownload &&
-                !(PreferencesState.EnableLivePlayback && fullfilename.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)))
+                !(PreferencesState.EnableLivePlayback && PlaybackFormats.SupportsProgressivePlayback(fullfilename)))
             {
                 var memStream = new MemoryStream();
                 dlInfo.OutputMemoryStream = memStream;

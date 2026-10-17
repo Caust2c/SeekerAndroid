@@ -66,6 +66,22 @@ namespace Common
             }
         }
 
+        // Some Android extractors treat a short frame read as permanent EOF.
+        // Assemble the complete request across appends, unless the file is finalized
+        // or cancelled. Already queued audio can still play while this read waits.
+        public int ReadFullyAt(long position, byte[] buffer, int offset, int count)
+        {
+            int total = ReadAt(position, buffer, offset, count);
+            if (total <= 0) return total;
+            while (total < count)
+            {
+                int read = ReadAt(position + total, buffer, offset + total, count - total);
+                if (read < 0) break;
+                total += read;
+            }
+            return total;
+        }
+
         // Cancellation must not wait for native MediaPlayer commands or close a provider
         // descriptor on the UI thread. The owner disposes the stream after release.
         public void Cancel()

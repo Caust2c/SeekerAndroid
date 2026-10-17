@@ -40,6 +40,7 @@ namespace InstrumentationTests
                 var testClasses = Assembly.GetExecutingAssembly()
                     .GetTypes()
                     .Where(t => t.GetCustomAttribute<TestFixtureAttribute>() != null)
+                    .Where(t => string.IsNullOrEmpty(Intent?.GetStringExtra("fixture")) || t.Name == Intent.GetStringExtra("fixture"))
                     .ToList();
 
                 AppendLine($"Found {testClasses.Count} test fixture(s)\n");
@@ -168,6 +169,8 @@ namespace InstrumentationTests
             AppendLine("========================================");
 
             Log.Info(Tag, $"Results: {passed} passed, {failed} failed, {skipped} skipped");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(FilesDir.AbsolutePath, "test-results.txt"),
+                $"{passed} passed, {failed} failed, {skipped} skipped\n" + string.Join("\n", failures));
         }
 
         private void AppendLine(string text)

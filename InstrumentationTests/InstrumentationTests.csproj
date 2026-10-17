@@ -27,4 +27,9 @@
     </ItemGroup>
   -->
 
+  <ItemGroup>
+    <Compile Include="..\Seeker\Services\GrowingAudioDataSource.cs" Link="SeekerSources\GrowingAudioDataSource.cs" />
+    <Compile Include="..\Seeker\Services\SeekableDocumentReadStream.cs" Link="SeekerSources\SeekableDocumentReadStream.cs" />
+  </ItemGroup>
+
 </Project>

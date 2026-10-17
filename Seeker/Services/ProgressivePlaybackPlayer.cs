@@ -27,7 +27,7 @@ namespace Seeker.Services
         private volatile TransferItem item;
         // Only the playback thread calls the native player. UI reads a snapshot.
         private MediaPlayer player;
-        private GrowingMp3DataSource source;
+        private GrowingAudioDataSource source;
         private bool prepared, wantsPlay, hasFocus, visible;
         private string filename;
         private int resumePosition, duration;
@@ -79,7 +79,7 @@ namespace Seeker.Services
         public async Task RequestAsync(FullFileInfo file, string username)
         {
             if (!PreferencesState.EnableLivePlayback ||
-                !file.FullFileName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)) return;
+                !PlaybackFormats.SupportsProgressivePlayback(file.FullFileName)) return;
             int request = CancelReader();
             Post(() =>
             {
@@ -221,7 +221,7 @@ namespace Seeker.Services
         {
             var engine = new MediaPlayer();
             player = engine;
-            source = reader == null ? null : new GrowingMp3DataSource(reader);
+            source = reader == null ? null : new GrowingAudioDataSource(reader);
             engine.SetAudioAttributes(new AudioAttributes.Builder()
                 .SetUsage(AudioUsageKind.Media).SetContentType(AudioContentType.Music).Build());
             engine.Prepared += (s, e) => Post(() =>
@@ -288,7 +288,11 @@ namespace Seeker.Services
             finally
             {
                 old?.Dispose();
-                oldSource?.Dispose();
+                // Release can return before Android's final read/close callbacks.
+                // Close the file now, but let the Java/managed bridge reclaim the
+                // peer once Java no longer references it. Disposing the peer here
+                // makes a late native callback try to resurrect an unusable source.
+                oldSource?.Close();
                 reader?.Dispose();
                 if (hasFocus)
                 {

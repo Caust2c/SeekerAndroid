@@ -23,6 +23,7 @@ namespace InstrumentationTests
     public class TestInstrumentation : Instrumentation
     {
         const string Tag = "SeekerTests";
+        private string fixtureFilter;
 
         public TestInstrumentation() { }
 
@@ -34,6 +35,7 @@ namespace InstrumentationTests
         public override void OnCreate(Bundle arguments)
         {
             base.OnCreate(arguments);
+            fixtureFilter = arguments?.GetString("fixture");
             Start();
         }
 
@@ -50,7 +52,10 @@ namespace InstrumentationTests
                 var testClasses = Assembly.GetExecutingAssembly()
                     .GetTypes()
                     .Where(t => t.GetCustomAttribute<TestFixtureAttribute>() != null)
+                    .Where(t => string.IsNullOrEmpty(fixtureFilter) || t.Name == fixtureFilter)
                     .ToList();
+
+                if (testClasses.Count == 0) throw new InvalidOperationException("No matching test fixtures: " + fixtureFilter);
 
                 Log.Info(Tag, $"Found {testClasses.Count} test fixture(s)");
 
@@ -187,6 +192,7 @@ namespace InstrumentationTests
             results.PutInt("failed", failed);
             results.PutInt("skipped", skipped);
             results.PutString("shortMsg", $"{passed} passed, {failed} failed, {skipped} skipped");
+            results.PutString("failures", string.Join("\n", failures));
 
             Finish(failed == 0 ? Result.Ok : Result.Canceled, results);
         }

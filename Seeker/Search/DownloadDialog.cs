@@ -274,7 +274,7 @@ namespace Seeker
         private async void ListView_ItemClick(object sender, AdapterView.ItemClickEventArgs e)
         {
             var file = SearchResponse.GetElementAtAdapterPosition(PreferencesState.HideLockedResultsInSearch, e.Position);
-            if (PreferencesState.EnableLivePlayback && file.Filename.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+            if (PreferencesState.EnableLivePlayback && PlaybackFormats.SupportsProgressivePlayback(file.Filename))
             {
                 Dismiss();
                 await ProgressivePlaybackPlayer.Instance.RequestAsync(BrowseUtils.GetFullFileInfos(new[] { file })[0], SearchResponse.Username);

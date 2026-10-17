@@ -43,6 +43,32 @@ namespace UnitTestCommon
         }
 
         [Test]
+        public async Task NativeFrameReadWaitsForMissingRemainderInsteadOfReturningShortEof()
+        {
+            string path = Path.GetTempFileName();
+            try
+            {
+                using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+                writer.Write(new byte[] { 1, 2 });
+                writer.Flush();
+                using var reader = new GrowingFileReader(new FileStream(path, FileMode.Open,
+                    FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+                var bytes = new byte[4];
+                var pending = Task.Run(() => reader.ReadFullyAt(0, bytes, 0, 4));
+                Assert.That(System.Threading.SpinWait.SpinUntil(() => reader.IsWaiting, 2000), Is.True);
+                Assert.That(pending.IsCompleted, Is.False);
+                writer.Write(new byte[] { 3, 4 });
+                writer.Flush();
+                Assert.That(await pending.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(4));
+                Assert.That(bytes, Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
+                reader.Complete();
+                Assert.That(reader.ReadFullyAt(2, bytes, 0, 4), Is.EqualTo(2));
+                Assert.That(reader.ReadFullyAt(4, bytes, 0, 4), Is.EqualTo(-1));
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
         public async Task HalfOfSevenMegabytesIsReadableBeforeCompletionThenWaitsForGrowth()
         {
             string path = Path.GetTempFileName();

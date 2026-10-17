@@ -125,7 +125,7 @@ namespace Seeker
                 var response = localDataSet[index];
                 var files = response.GetFiles(PreferencesState.HideLockedResultsInSearch).ToArray();
                 if (PreferencesState.EnableLivePlayback && files.Length == 1 &&
-                    files[0].Filename.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+                    PlaybackFormats.SupportsProgressivePlayback(files[0].Filename))
                     await ProgressivePlaybackPlayer.Instance.RequestAsync(BrowseUtils.GetFullFileInfos(files)[0], response.Username);
                 else GetSearchFragment().ShowDownloadDialog(index);
             }
