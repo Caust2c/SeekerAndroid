@@ -24,7 +24,8 @@ used when artwork is absent. Both player sizes use Seeker's selected theme,
 text and accent colors. The expanded sheet inherits the app's Material bottom-sheet
 surface and reuses its existing close, chevron and pause assets. The collapse button keeps playback running; Close
 stops playback while the download continues. Compact Play/Pause and Close have
-52/48 dp targets separated by 20 dp. Completed MP3/FLAC downloads also use this
+52/48 dp targets separated by 4 dp. The compact bar has square corners to match
+Seeker's list and navigation surfaces. Completed MP3/FLAC downloads also use this
 player through their Play action when Live Playback is enabled.
 
 Leading FLAC STREAMINFO, Vorbis comments and PICTURE blocks, and ordinary ID3v2.3/
