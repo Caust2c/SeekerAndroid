@@ -29,7 +29,6 @@ namespace Seeker
             var sheet = ((BottomSheetDialog)Dialog).FindViewById<View>(Resource.Id.design_bottom_sheet);
             if (sheet != null)
             {
-                sheet.SetBackgroundColor(Color.Transparent);
                 var behavior = BottomSheetBehavior.From(sheet);
                 behavior.SkipCollapsed = true;
                 behavior.State = BottomSheetBehavior.StateExpanded;
@@ -79,7 +78,7 @@ namespace Seeker
         public static void PlayButton(ImageButton button)
         {
             bool playing = ProgressivePlaybackPlayer.Instance.WantsPlay;
-            button.SetImageResource(playing ? Resource.Drawable.player_pause : Resource.Drawable.player_play);
+            button.SetImageResource(playing ? Resource.Drawable.paused : Resource.Drawable.player_play);
             button.ContentDescription = button.Context.GetString(playing ? Resource.String.miniplayer_pause : Resource.String.miniplayer_play);
         }
         public static void Progress(ProgressBar bar)

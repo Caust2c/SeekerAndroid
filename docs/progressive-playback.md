@@ -20,7 +20,9 @@ second transfer. Closing the player does not cancel that download.
 Tap the cover/title area of the compact player to expand it. The sheet shows the
 embedded cover, title, artist, album, available FLAC sample rate/bit depth,
 elapsed time, duration and download progress. A generated vector record cover is
-used when artwork is absent. The collapse button keeps playback running; Close
+used when artwork is absent. Both player sizes use Seeker's selected theme,
+text and accent colors. The expanded sheet inherits the app's Material bottom-sheet
+surface and reuses its existing close, chevron and pause assets. The collapse button keeps playback running; Close
 stops playback while the download continues. Compact Play/Pause and Close have
 52/48 dp targets separated by 20 dp. Completed MP3/FLAC downloads also use this
 player through their Play action when Live Playback is enabled.

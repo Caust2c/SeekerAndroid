@@ -1,8 +1,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="300dp" android:height="300dp" android:viewportWidth="300" android:viewportHeight="300">
-<path android:fillColor="#22465D" android:pathData="M0,0H300V300H0Z"/>
-<path android:fillColor="#326E80" android:pathData="M0,230L230,0H300V70L70,300H0Z"/>
-<path android:fillColor="#112737" android:pathData="M150,48A102,102 0,1 0,150,252A102,102 0,1 0,150,48"/>
-<path android:fillColor="#294B5C" android:pathData="M150,69A81,81 0,1 0,150,231A81,81 0,1 0,150,69"/>
-<path android:fillColor="#183444" android:pathData="M150,75A75,75 0,1 0,150,225A75,75 0,1 0,150,75"/>
-<path android:fillColor="#70D5CF" android:pathData="M150,119A31,31 0,1 0,150,181A31,31 0,1 0,150,119"/>
-<path android:fillColor="#173643" android:pathData="M150,144A6,6 0,1 0,150,156A6,6 0,1 0,150,144"/></vector>
+<path android:fillColor="?attr/surface_variant1" android:pathData="M0,0H300V300H0Z"/>
+<path android:fillColor="?attr/slightContrastColor" android:pathData="M0,230L230,0H300V70L70,300H0Z"/>
+<path android:fillColor="?attr/slskAccent" android:pathData="M150,48A102,102 0,1 0,150,252A102,102 0,1 0,150,48"/>
+<path android:fillColor="?attr/cellTextColorVerySubdued" android:pathData="M150,69A81,81 0,1 0,150,231A81,81 0,1 0,150,69"/>
+<path android:fillColor="?attr/slskAccent" android:pathData="M150,75A75,75 0,1 0,150,225A75,75 0,1 0,150,75"/>
+<path android:fillColor="?attr/mainPurple" android:pathData="M150,119A31,31 0,1 0,150,181A31,31 0,1 0,150,119"/>
+<path android:fillColor="?attr/colorOnPrimary" android:pathData="M150,144A6,6 0,1 0,150,156A6,6 0,1 0,150,144"/></vector>
