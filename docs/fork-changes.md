@@ -2,7 +2,8 @@
 
 Compared with the starting `master` commit `94a49dd4` (Seeker 3.11.0, version
 code 142). This describes the final implementation, including the revisions
-made after testing it on the phone. Work is on `codex/player-artwork-flac-diagnostics`.
+made after testing it on the phone. Player/UI work is on `codex/player-artwork-flac-diagnostics`; background playback
+continues on `codex/background-playback`.
 
 ## Playback behavior
 
@@ -65,7 +66,13 @@ made after testing it on the phone. Work is on `codex/player-artwork-flac-diagno
 - Distinguished peer waiting/timeouts from decoder buffering. Failed transfers
   offer Retry Download in the expanded player through the existing retry path.
   The captured FLAC timeout was an unresponsive peer, not a native codec error.
-- Playback pauses on backgrounding, audio-focus loss or headphone unplugging.
+- Playback now continues on minimizing Seeker and locking the screen. A dedicated
+  media-playback foreground service, platform MediaSession, notification controls
+  and a playback wake lock support this. Audio-focus loss and unplugged headphones
+  still pause playback; Close releases the service without cancelling the download.
+- Paused playback releases its engine/wake lock immediately and drops foreground
+  priority after a 30-second resume grace. Active playback survives removing the
+  app from recents. Force-stop/process death does not automatically restart music.
 
 ## Verification and current boundaries
 
@@ -76,12 +83,15 @@ made after testing it on the phone. Work is on `codex/player-artwork-flac-diagno
   FLAC starting with only half its bytes present. Production FLAC playback also
   advanced before the transfer finished.
 - Built and installed debug-signed APK updates through ADB, preserving app data.
+  The background build was also checked on the phone: playback continued after
+  Home and screen locking; media Pause/Play, foreground demotion/re-promotion and
+  Stop cleanup worked.
   Subsequent visual-only revisions were checked through builds and the phone UI.
 - The project still targets the fork's .NET 10 / Android API 36 configuration;
   this work did not upgrade that target. Android requires an APK signature;
   the debug key is sufficient for these phone installations.
-- Current playback formats are MP3 and FLAC. Playback is foreground-only, with
-  no background service, queue/playlist, process-death session restoration or
+- Current playback formats are MP3 and FLAC. There is no queue/playlist,
+  process-death session restoration or
   interactive seek control. Android may prefetch before startup, and an
   unresponsive peer cannot provide audio. Pipe-only document providers do not
   support the random reads required by this implementation.

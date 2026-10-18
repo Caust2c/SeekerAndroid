@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace Seeker.Services
 {
-    /// <summary>One foreground session; DownloadService owns the download.</summary>
+    /// <summary>One playback session, kept alive by PlaybackForegroundService; DownloadService owns the download.</summary>
     public sealed class ProgressivePlaybackPlayer : Java.Lang.Object, AudioManager.IOnAudioFocusChangeListener
     {
         public static ProgressivePlaybackPlayer Instance { get; set; }
@@ -29,7 +29,7 @@ namespace Seeker.Services
         // Only the playback thread calls the native player. UI reads a snapshot.
         private MediaPlayer player;
         private GrowingAudioDataSource source;
-        private bool prepared, wantsPlay, hasFocus, visible;
+        private bool prepared, wantsPlay, hasFocus, visible, playbackServiceReady;
         private string filename;
         private int resumePosition, duration;
         private AudioMetadata metadata = new AudioMetadata();
@@ -104,7 +104,7 @@ namespace Seeker.Services
             Post(() =>
             {
                 if (!IsCurrent(request)) return;
-                Reset();
+                Reset(false);
                 filename = SimpleHelpers.GetFileNameFromFile(file.FullFileName).ToString();
                 visible = wantsPlay = true;
                 statusResource = Resource.String.playback_waiting;
@@ -112,6 +112,10 @@ namespace Seeker.Services
             });
             try
             {
+                if (!await PlaybackForegroundService.EnsureStarted(context))
+                    throw new InvalidOperationException("Could not start the playback service.");
+                if (!IsCurrent(request)) return;
+                Post(() => { if (IsCurrent(request)) { playbackServiceReady = true; Refresh(); } });
                 if (SessionService.Instance.CurrentlyLoggedInButDisconnectedState())
                 {
                     if (!SessionService.Instance.ShowMessageAndCreateReconnectTask(false, out Task reconnect))
@@ -142,21 +146,44 @@ namespace Seeker.Services
             Post(() =>
             {
                 if (!IsCurrent(request)) return;
-                Reset();
+                Reset(false);
                 item = transfer;
                 filename = transfer.Filename;
                 visible = wantsPlay = true;
                 statusResource = Resource.String.playback_waiting;
-                Refresh();
+                PublishState();
             });
+            _ = ResumeWithServiceAsync(request);
         }
-        public void Play() => Post(() =>
+        public void Play()
         {
-            if (!visible || !PreferencesState.EnableLivePlayback) return;
-            wantsPlay = true;
-            statusResource = Resource.String.playback_waiting;
-            Refresh();
-        });
+            int request;
+            lock (sourceGate) request = generation;
+            _ = ResumeWithServiceAsync(request);
+        }
+        private async Task ResumeWithServiceAsync(int request)
+        {
+            Post(() =>
+            {
+                if (!IsCurrent(request) || !visible || !PreferencesState.EnableLivePlayback) return;
+                playbackServiceReady = false;
+                wantsPlay = true;
+                statusResource = Resource.String.playback_waiting;
+                PublishState();
+            });
+            try
+            {
+                bool ready = await PlaybackForegroundService.EnsureStarted(context);
+                Post(() =>
+                {
+                    if (!IsCurrent(request) || !visible || !PreferencesState.EnableLivePlayback) return;
+                    if (!ready) { Fail(new InvalidOperationException("Could not start the playback service.")); return; }
+                    playbackServiceReady = true;
+                    Refresh();
+                });
+            }
+            catch (Exception ex) { Post(() => { if (IsCurrent(request)) Fail(ex); }); }
+        }
         public void Pause()
         {
             CancelReader();
@@ -169,10 +196,10 @@ namespace Seeker.Services
                 PublishState();
             });
         }
-        public void Close() { CancelReader(); Post(Reset); }
-        private void Reset()
+        public void Close() { CancelReader(); Post(() => Reset()); }
+        private void Reset(bool publish = true)
         {
-            wantsPlay = visible = false;
+            wantsPlay = visible = playbackServiceReady = false;
             ReleaseEngine();
             item = null;
             metadataSession++;
@@ -182,7 +209,7 @@ namespace Seeker.Services
             metadataBytes = -1;
             resumePosition = duration = 0;
             handler.RemoveCallbacks(tick);
-            PublishState();
+            if (publish) PublishState();
         }
         private static bool Finalized(TransferItem transfer) => transfer != null && !transfer.InProcessing &&
             transfer.State.HasFlag(TransferStates.Succeeded) && !string.IsNullOrEmpty(transfer.FinalUri);
@@ -215,7 +242,7 @@ namespace Seeker.Services
             bool finalized = Finalized(item);
             ReadMetadata(finalized);
             if (finalized) activeReader?.Complete();
-            if (wantsPlay && item != null && player == null)
+            if (wantsPlay && playbackServiceReady && item != null && player == null)
             {
                 int request;
                 lock (sourceGate) request = generation;
@@ -291,6 +318,7 @@ namespace Seeker.Services
         {
             var engine = new MediaPlayer();
             player = engine;
+            engine.SetWakeMode(context, WakeLockFlags.Partial);
             source = reader == null ? null : new GrowingAudioDataSource(reader);
             engine.SetAudioAttributes(new AudioAttributes.Builder()
                 .SetUsage(AudioUsageKind.Media).SetContentType(AudioContentType.Music).Build());

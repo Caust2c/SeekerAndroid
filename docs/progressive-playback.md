@@ -2,7 +2,8 @@
 
 The first phone-confirmed MP3 implementation is preserved at commit `4bc81504`
 on `codex/mp3-playback-base`. Stability work is on `codex/playback-stability-flac`; the expanded player and
-peer-timeout diagnostics are on `codex/player-artwork-flac-diagnostics`.
+peer-timeout diagnostics are on `codex/player-artwork-flac-diagnostics`. Background
+playback continues on `codex/background-playback`.
 
 Enable **Enable Live Playback** in Downloads settings. Tap a single-track MP3 or FLAC search
 result to play it. For a result containing multiple tracks, tap the MP3 or FLAC in its
@@ -83,9 +84,27 @@ source again. Position restoration depends on the platform extractor's seeking
 support for the unfinished file.
 
 The application owns the session, and MainActivity displays the miniplayer
-outside its tab pager. Rotation rebinds the session. Playback pauses when Seeker
-enters the background or loses audio focus, and when headphones are unplugged.
-There is no background playback service or process-death restoration.
+outside its tab pager. Rotation rebinds the session. Playback continues when Seeker
+is minimized, another app is opened, or the screen is locked. Audio-focus loss
+and unplugged headphones still pause playback.
+
+`PlaybackForegroundService` declares the `mediaPlayback` service type and its
+permission. Play requests start/promote it before native preparation or audio
+focus, including a resume from the notification. A platform MediaSession supplies
+title, artist, album, duration, artwork and playback state to Android's media UI;
+its Play, Pause and Stop callbacks control the same player as the app. The media
+notification opens Seeker and exposes Play/Pause and Close. Notification updates
+are limited to changed metadata/status; position updates go to the media session.
+
+MediaPlayer holds a partial wake lock during playback so audio can continue with
+the display off. Pausing releases the engine, wake lock and audio focus. The
+service allows a 30-second foreground pause/resume grace on its main looper,
+then drops foreground priority (the timer does not wake a sleeping device) while leaving paused media controls available as long as Android retains
+the service. Close, disabling Live Playback and service destruction release the
+media session and notification. Closing playback does not stop its download.
+Removing Seeker from recents keeps active playback; removing it while paused
+closes the idle playback session. The service is not sticky: force-stop or process
+death does not restart or restore a track automatically.
 
 The reader holds its descriptor across normal copy/delete or move finalization.
 DownloadService signals completion after the final URI is ready. Transfer cleanup
@@ -148,6 +167,18 @@ then paused correctly when the test app entered the foreground. The four synthet
 phone regression checks were also rerun successfully (4 passed, 0 failed),
 including catch-up/resume and close-while-buffering.
 
+The background-playback build compiled and packaged successfully on 2026-10-18
+and was installed on the CPH2707. Android reported the service as foreground
+with type `0x2` (`mediaPlayback`) and notification ID 131. Device checks confirmed:
+
+- FLAC playback advanced after Home minimized Seeker (about 1:15 to 1:49).
+- Playback advanced with the phone locked/dozing (about 2:42 to 4:20).
+- Targeted media-session Pause held the position; the paused service subsequently
+  released foreground priority while the device was awake.
+- Media-session Play re-promoted the service and resumed playback while locked
+  (about 4:40 to 5:02), including after foreground priority had been released.
+- The media Stop action removed both the playback service and its MediaSession.
+
 Further device checks across different phones/providers and music files:
 
 1. Enable Live Playback and tap a fresh 7 MB MP3. Audio must begin before download
@@ -155,7 +186,8 @@ Further device checks across different phones/providers and music files:
 2. Limit or pause the download after roughly half arrives. Already-buffered audio
    should play, then wait at the edge. Resume the transfer and confirm continuation.
 3. Pause/Play, Close during preparation/buffering, switch tracks rapidly, rotate,
-   change tabs, background the app, and disconnect headphones.
+   change tabs, minimize the app, lock the screen, and disconnect headphones.
+   Minimizing/locking should continue playback; headphone removal should pause.
 4. Repeat using a normal Android document-folder download destination; verify
    completion and retry do not unexpectedly stop or mix playback sources.
 5. Verify touch-and-hold selection plus Download does not start playback, and

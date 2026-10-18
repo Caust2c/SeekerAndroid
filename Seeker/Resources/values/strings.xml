@@ -998,7 +998,7 @@
 
     <string name="enable_live_playback">Enable Live Playback</string>
     <string name="live_playback_tap_hint">Tap an MP3 or FLAC to play. Touch and hold to select for Download.</string>
-    <string name="live_playback_description">Tap an MP3 or FLAC to play while it downloads. Touch and hold to select files for Download. Playback buffers when it catches up and pauses when Seeker enters the background.</string>
+    <string name="live_playback_description">Tap an MP3 or FLAC to play while it downloads. Touch and hold to select files for Download. Playback buffers when it catches up and continues when Seeker is minimized or the screen is locked.</string>
     <string name="miniplayer_play">Play</string>
     <string name="miniplayer_pause">Pause</string>
     <string name="miniplayer_close">Close</string>
@@ -1020,4 +1020,5 @@
     <string name="player_artwork">Album artwork</string>
     <string name="player_retry">Retry download</string>
     <string name="player_artist_unknown">Artist unavailable</string>
+    <string name="playback_notification_channel">Music playback</string>
 </resources>

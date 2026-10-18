@@ -153,7 +153,6 @@ namespace Seeker
                 return;
             }
             isForeground = false;
-            ProgressivePlaybackPlayer.Instance?.Pause();
             Logger.Debug("We are backgrounded!");
 
             //app going to background — drain buffered diagnostics before Android can kill us.
