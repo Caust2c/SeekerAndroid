@@ -26,10 +26,3 @@ Run this fixture only (avoids unrelated write benchmarks):
 ```powershell
 adb shell am instrument -w -e fixture ProgressivePlaybackTests com.seeker.instrumentationtests/instrumentationtests.TestInstrumentation
 ```
-
-An optional `RealFlacPlaybackTests` fixture reads `files/diagnostic.flac` in the
-test app's private directory. It checks embedded metadata/artwork and verifies
-native playback starts with only the first half of that file present. It skips
-when the private file is absent. Supply your own file via ADB; do not add music
-recordings to source control. Select this fixture with `-e fixture
-RealFlacPlaybackTests` (or `--es fixture RealFlacPlaybackTests` for the test activity).

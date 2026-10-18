@@ -364,4 +364,3 @@ healthchecksdb
 # dotnet-trace captures
 *.nettrace
 *.speedscope.json
-/.playback-diagnostics/
