@@ -220,6 +220,10 @@ namespace Seeker
                 {
                     pager.SetCurrentItem(2, false);
                 }
+                else if (Intent.GetBooleanExtra(GoToAccountExtra, false) && !alreadyHandled) //else every rotation returns to the account tab
+                {
+                    pager.SetCurrentItem(0, false);
+                }
                 else if (Intent.GetBooleanExtra(GoToBrowseExtra, false))
                 {
                     pager.SetCurrentItem(3, false);
@@ -566,6 +570,10 @@ namespace Seeker
             {
                 pager.SetCurrentItem(2, false);
             }
+            else if (Intent.GetBooleanExtra(GoToAccountExtra, false))
+            {
+                pager.SetCurrentItem(0, false);
+            }
         }
 
         private void HandleFromNotificationUploadIntent()
@@ -635,6 +643,7 @@ namespace Seeker
 
         // Intent extra keys — all intent extras targeting MainActivity are defined here.
         public const string GoToBrowseExtra = "GoToBrowse";
+        public const string GoToAccountExtra = "GoToAccount";
         public const string GoToSearchExtra = "GoToSearch";
         public const string GoToUploadsExtra = "GoToUploads";
         public const string GoToUploadsForegroundExtra = "GoToUploadsForeground";

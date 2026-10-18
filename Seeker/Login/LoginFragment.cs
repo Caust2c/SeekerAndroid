@@ -54,6 +54,10 @@ namespace Seeker
         private TextView connectionStatusText;
         private View connectionStatusChip;
 
+        private View serverMessageCard;
+        private TextView serverMessageText;
+        private TextView serverMessageTime;
+
         // Menu rows
         private View menuSetUpSharing;
         private View menuManageUserList;
@@ -83,8 +87,11 @@ namespace Seeker
             MessagesBroadcastReceiver.MarkAsReadFromNotification += OnMarkAsReadUpdateBadge;
             UpdateUnreadBadge();
 
+            SessionService.LoginStarted += OnLoginStarted;
             SessionService.LoginCompleted += OnLoginCompleted;
+            ServerMessageService.Changed += OnServerMessageChanged;
             RenderFromState();
+            UpdateServerMessage();
         }
 
         public override void OnPause()
@@ -93,7 +100,41 @@ namespace Seeker
             SeekerState.SoulseekClient.StateChanged -= SoulseekClient_StateChanged;
             MessageController.MessageReceived -= OnMessageReceivedUpdateBadge;
             MessagesBroadcastReceiver.MarkAsReadFromNotification -= OnMarkAsReadUpdateBadge;
+            SessionService.LoginStarted -= OnLoginStarted;
             SessionService.LoginCompleted -= OnLoginCompleted;
+            ServerMessageService.Changed -= OnServerMessageChanged;
+        }
+
+        private void OnServerMessageChanged(object sender, EventArgs e)
+        {
+            UpdateServerMessage();
+        }
+
+        private void UpdateServerMessage()
+        {
+            if (serverMessageCard == null)
+            {
+                return;
+            }
+            if (ServerMessageService.HasActiveMessage)
+            {
+                serverMessageText.Text = ServerMessageService.Text;
+                DateTime receivedUtc = ServerMessageService.ReceivedUtc;
+                serverMessageTime.Text = CommonHelpers.GetRecentTimeNiceFormated(receivedUtc, DateTime.UtcNow - receivedUtc);
+                serverMessageCard.Visibility = ViewStates.Visible;
+            }
+            else
+            {
+                serverMessageCard.Visibility = ViewStates.Gone;
+            }
+        }
+
+        private void OnLoginStarted(object sender, EventArgs e)
+        {
+            this.Activity?.RunOnUiThread(() =>
+            {
+                UpdateConnectionStatus(SeekerState.SoulseekClient.State);
+            });
         }
 
         private void OnLoginCompleted(object sender, LoginCompletedEventArgs e)
@@ -209,6 +250,11 @@ namespace Seeker
             connectionStatusText = rootView.FindViewById<TextView>(Resource.Id.connectionStatusText);
             connectionStatusChip = rootView.FindViewById<View>(Resource.Id.connectionStatusChip);
 
+            serverMessageCard = rootView.FindViewById<View>(Resource.Id.serverMessageCard);
+            serverMessageText = rootView.FindViewById<TextView>(Resource.Id.serverMessageText);
+            serverMessageTime = rootView.FindViewById<TextView>(Resource.Id.serverMessageTime);
+            rootView.FindViewById<View>(Resource.Id.serverMessageDismiss).Click += (s, e) => ServerMessageService.Dismiss();
+
             menuSetUpSharing = rootView.FindViewById<View>(Resource.Id.menuSetUpSharing);
             menuManageUserList = rootView.FindViewById<View>(Resource.Id.menuManageUserList);
             menuMessages = rootView.FindViewById<View>(Resource.Id.menuMessages);
@@ -270,6 +316,7 @@ namespace Seeker
                 UpdateConnectionStatus(SeekerState.SoulseekClient.State);
 
                 UpdateUnreadBadge();
+                UpdateServerMessage();
 
                 if (UploadDirectoryManager.UploadDirectories == null || UploadDirectoryManager.UploadDirectories.Count == 0)
                 {
@@ -310,7 +357,8 @@ namespace Seeker
                         textColorResId = Resource.Color.statusConnectedText;
                         chipBgColorResId = Resource.Color.statusConnectedChipBg;
                     }
-                    else if (state.HasFlag(SoulseekClientStates.Connecting) || state.HasFlag(SoulseekClientStates.LoggingIn))
+                    else if (state.HasFlag(SoulseekClientStates.Connecting) || state.HasFlag(SoulseekClientStates.LoggingIn)
+                        || SessionService.InFlightLoginOrigin != null) // i.e. resolving DNS or any pre-connect step
                     {
                         textResId = Resource.String.status_connecting;
                         dotColorResId = Resource.Color.statusConnectingDot;
