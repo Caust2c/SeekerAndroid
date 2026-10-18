@@ -1012,4 +1012,12 @@
     <string name="playback_finished">Finished</string>
     <string name="playback_failed">Unable to play this file</string>
     <string name="playback_download_failed">Download failed</string>
+    <string name="playback_peer_timeout">Download peer timed out · retry or choose another copy</string>
+    <string name="playback_queued">Waiting for the download peer</string>
+    <string name="player_now_playing">NOW PLAYING</string>
+    <string name="player_expand">Expand player</string>
+    <string name="player_collapse">Collapse player</string>
+    <string name="player_artwork">Album artwork</string>
+    <string name="player_retry">Retry download</string>
+    <string name="player_artist_unknown">Artist unavailable</string>
 </resources>

@@ -29,11 +29,11 @@ namespace InstrumentationTests
         public Task CloseWhileBufferingKeepsLateNativeCallbacksSafe() =>
             PlayGrowingFile("playback-24bit-96000.flac", closeAtEdge: true);
 
-        private static async Task PlayGrowingFile(string asset, bool closeAtEdge = false, bool startOnly = false)
+        internal static async Task PlayGrowingFile(string asset, bool closeAtEdge = false, bool startOnly = false)
         {
             Android.Util.Log.Warn("SeekerTests", "Starting progressive decode: " + asset);
             using var encoded = new MemoryStream();
-            using (var input = Application.Context.Assets.Open(asset)) input.CopyTo(encoded);
+            using (var input = Path.IsPathRooted(asset) ? File.OpenRead(asset) : Application.Context.Assets.Open(asset)) input.CopyTo(encoded);
             byte[] bytes = encoded.ToArray();
             string path = Path.Combine(Application.Context.CacheDir.AbsolutePath, Guid.NewGuid() + ".partial");
             var thread = new HandlerThread("GrowingAudioTest");
@@ -150,6 +150,28 @@ namespace InstrumentationTests
                 GC.WaitForPendingFinalizers();
                 await Task.Delay(500);
             }
+        }
+    }
+}
+
+namespace InstrumentationTests
+{
+    [TestFixture]
+    public class RealFlacPlaybackTests
+    {
+        [Test]
+        public async Task UserSuppliedFlacStartsFromHalfFileWithEmbeddedMetadata()
+        {
+            string path = Path.Combine(Application.Context.FilesDir.AbsolutePath, "diagnostic.flac");
+            if (!File.Exists(path)) Assert.Ignore("Optional: copy a local FLAC to files/diagnostic.flac; never commit music fixtures.");
+            using (var stream = File.OpenRead(path))
+            {
+                var tags = AudioMetadataReader.Read(stream);
+                Assert.That(tags.Complete, Is.True);
+                Assert.That(tags.Artwork, Is.Not.Null);
+                Assert.That(tags.Title, Is.Not.Empty);
+            }
+            await ProgressivePlaybackTests.PlayGrowingFile(path, startOnly: true);
         }
     }
 }

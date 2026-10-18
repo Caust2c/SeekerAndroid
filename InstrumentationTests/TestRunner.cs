@@ -138,6 +138,12 @@ namespace InstrumentationTests
                         catch (Exception ex)
                         {
                             var inner = ex is TargetInvocationException tie ? tie.InnerException ?? ex : ex;
+                            if (inner is IgnoreException)
+                            {
+                                Log.Info(Tag, $"  SKIP: {testName} - {inner.Message}");
+                                skipped++;
+                                continue;
+                            }
                             Log.Error(Tag, $"  FAIL: {testName} - {inner}");
                             failed++;
                             failures.Add($"{testName}: {inner.Message}");

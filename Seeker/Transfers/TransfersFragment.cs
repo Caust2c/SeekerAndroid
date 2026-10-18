@@ -779,6 +779,11 @@ namespace Seeker
                         break;
                     case TransferContextMenuItem.PlayFile:
                         TransferItem tiPlay = ti as TransferItem;
+                        if (PreferencesState.EnableLivePlayback && PlaybackFormats.SupportsProgressivePlayback(tiPlay?.FullFilename))
+                        {
+                            ProgressivePlaybackPlayer.Instance.RequestTransfer(tiPlay);
+                            break;
+                        }
                         try
                         {
                             //tested on API25 and API30

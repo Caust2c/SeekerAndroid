@@ -1,3 +1,4 @@
+using AudioMetadata = Common.AudioMetadata;
 using Android.Content;
 using Android.Media;
 using Android.OS;
@@ -31,10 +32,16 @@ namespace Seeker.Services
         private bool prepared, wantsPlay, hasFocus, visible;
         private string filename;
         private int resumePosition, duration;
+        private AudioMetadata metadata = new AudioMetadata();
+        private bool metadataLoading;
+        private int metadataSession;
+        private long metadataBytes = -1;
+        private string metadataUri;
+
         private int statusResource = Resource.String.playback_waiting;
         private sealed record State(bool Visible, string Filename, bool WantsPlay, int Position,
-            int Duration, int DownloadProgress, int StatusResource);
-        private volatile State state = new(false, null, false, 0, 0, 0, Resource.String.playback_waiting);
+            int Duration, int DownloadProgress, int StatusResource, AudioMetadata Metadata, bool CanRetry);
+        private volatile State state = new(false, null, false, 0, 0, 0, Resource.String.playback_waiting, new AudioMetadata(), false);
         public event EventHandler Changed;
         public bool Visible => state.Visible;
         public string Filename => state.Filename;
@@ -43,6 +50,19 @@ namespace Seeker.Services
         public int Duration => state.Duration;
         public int DownloadProgress => state.DownloadProgress;
         public int StatusResource => state.StatusResource;
+        public string Title => string.IsNullOrWhiteSpace(state.Metadata.Title)
+            ? System.IO.Path.GetFileNameWithoutExtension(state.Filename ?? "") : state.Metadata.Title;
+        public string Artist => state.Metadata.Artist;
+        public string Album => state.Metadata.Album;
+        public string Quality => state.Metadata.Quality ?? (state.Filename?.EndsWith(".flac", StringComparison.OrdinalIgnoreCase) == true ? "FLAC" : "MP3");
+        public byte[] Artwork => state.Metadata.Artwork;
+        public bool CanRetry => state.CanRetry;
+        public void RetryDownload() => Post(() =>
+        {
+            if (item == null || !item.Failed || item.InProcessing) return;
+            DownloadService.Instance.RetryDownloadItem(item);
+            Refresh();
+        });
 
         public ProgressivePlaybackPlayer(Context context)
         {
@@ -108,10 +128,27 @@ namespace Seeker.Services
                     if (!IsCurrent(request)) return;
                     if (transfer == null) { Reset(); return; }
                     item = transfer;
+                    Android.Util.Log.Info("SeekerPlayback", $"Attached: state={item.State}, bytes={item.BytesTransferred}/{item.Size}, finalized={Finalized(item)}");
                     Refresh();
                 });
             }
             catch (Exception ex) { Post(() => { if (IsCurrent(request)) Fail(ex); }); }
+        }
+        public void RequestTransfer(TransferItem transfer)
+        {
+            if (transfer == null || !PreferencesState.EnableLivePlayback ||
+                !PlaybackFormats.SupportsProgressivePlayback(transfer.FullFilename)) return;
+            int request = CancelReader();
+            Post(() =>
+            {
+                if (!IsCurrent(request)) return;
+                Reset();
+                item = transfer;
+                filename = transfer.Filename;
+                visible = wantsPlay = true;
+                statusResource = Resource.String.playback_waiting;
+                Refresh();
+            });
         }
         public void Play() => Post(() =>
         {
@@ -138,6 +175,11 @@ namespace Seeker.Services
             wantsPlay = visible = false;
             ReleaseEngine();
             item = null;
+            metadataSession++;
+            metadata = new AudioMetadata();
+            metadataLoading = false;
+            metadataUri = null;
+            metadataBytes = -1;
             resumePosition = duration = 0;
             handler.RemoveCallbacks(tick);
             PublishState();
@@ -171,6 +213,7 @@ namespace Seeker.Services
             if (!visible) return;
             if (item?.CancelAndClearFlag == true) { Reset(); return; }
             bool finalized = Finalized(item);
+            ReadMetadata(finalized);
             if (finalized) activeReader?.Complete();
             if (wantsPlay && item != null && player == null)
             {
@@ -217,6 +260,33 @@ namespace Seeker.Services
             PublishState();
             if (visible) handler.PostDelayed(tick, 500);
         }
+        private void ReadMetadata(bool finalized)
+        {
+            string uri = finalized ? item?.FinalUri : item?.IncompleteUri;
+            if (string.IsNullOrEmpty(uri) || metadataLoading ||
+                (uri == metadataUri && (metadata.Complete || item.BytesTransferred == metadataBytes))) return;
+            metadataLoading = true;
+            metadataUri = uri;
+            metadataBytes = item.BytesTransferred;
+            int session = metadataSession;
+            _ = Task.Run(() =>
+            {
+                AudioMetadata result = null;
+                try
+                {
+                    using var stream = FileSystemService.Instance.OpenProgressiveRead(uri);
+                    if (stream != null) result = AudioMetadataReader.Read(stream);
+                }
+                catch (Exception ex) { Android.Util.Log.Warn("SeekerPlayback", "Metadata unavailable: " + ex.GetType().Name); }
+                Post(() =>
+                {
+                    if (session != metadataSession) return;
+                    metadataLoading = false;
+                    if (result != null) metadata = result;
+                    PublishState();
+                });
+            });
+        }
         private void Prepare(string uri, GrowingFileReader reader, int request)
         {
             var engine = new MediaPlayer();
@@ -228,6 +298,7 @@ namespace Seeker.Services
             {
                 if (!ReferenceEquals(player, engine) || !IsCurrent(request)) return;
                 prepared = true;
+                Android.Util.Log.Info("SeekerPlayback", "Prepared native decoder; progressive=" + (reader != null));
                 if (resumePosition > 0) engine.SeekTo(resumePosition);
                 if (wantsPlay) Start();
                 Refresh();
@@ -317,7 +388,13 @@ namespace Seeker.Services
             int progress = item?.State.HasFlag(TransferStates.Succeeded) == true ? 100
                 : item?.Size > 0 ? (int)Math.Clamp(item.BytesTransferred * 100.0 / item.Size, 0, 100) : 0;
             int status = activeReader?.IsWaiting == true && wantsPlay ? Resource.String.playback_buffering : statusResource;
-            state = new State(visible, filename, wantsPlay, resumePosition, duration, progress, status);
+            bool failed = item?.Failed == true && !item.InProcessing;
+            if (failed && (!prepared || activeReader?.IsWaiting == true))
+                status = item.State.HasFlag(TransferStates.TimedOut) ? Resource.String.playback_peer_timeout : Resource.String.playback_download_failed;
+            else if (wantsPlay && player == null && item?.State.HasFlag(TransferStates.Queued) == true)
+                status = Resource.String.playback_queued;
+            state = new State(visible, filename, wantsPlay, resumePosition,
+                duration > 0 ? duration : metadata.DurationMilliseconds, progress, status, metadata, failed);
             main.Post(() => Changed?.Invoke(this, EventArgs.Empty));
         }
         public void OnAudioFocusChange(AudioFocus focusChange)
