@@ -12,6 +12,7 @@ namespace Seeker
     public sealed class ExpandedPlayerDialog : BottomSheetDialogFragment
     {
         private PlayerArtworkBinding artwork;
+        private bool scrubbing;
         public override View OnCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) =>
             inflater.Inflate(Resource.Layout.player_expanded, container, false);
         public override void OnViewCreated(View view, Bundle savedInstanceState)
@@ -22,6 +23,20 @@ namespace Seeker
             view.FindViewById(Resource.Id.playerClose).Click += (s, e) => { ProgressivePlaybackPlayer.Instance.Close(); Dismiss(); };
             view.FindViewById(Resource.Id.playerPlayPause).Click += (s, e) => PlayerUi.Toggle();
             view.FindViewById(Resource.Id.playerRetry).Click += (s, e) => ProgressivePlaybackPlayer.Instance.RetryDownload();
+            var seek = view.FindViewById<SeekBar>(Resource.Id.playerProgress);
+            seek.StartTrackingTouch += (s, e) => scrubbing = true;
+            seek.StopTrackingTouch += (s, e) =>
+            {
+                scrubbing = false;
+                ProgressivePlaybackPlayer.Instance.SeekTo(seek.Progress);
+            };
+            seek.ProgressChanged += (s, e) =>
+            {
+                if (!e.FromUser) return;
+                view.FindViewById<TextView>(Resource.Id.playerElapsed).Text = PlayerUi.Time(e.Progress);
+                // Keyboard and accessibility adjustments do not send touch tracking events.
+                if (!scrubbing) ProgressivePlaybackPlayer.Instance.SeekTo(e.Progress);
+            };
         }
         public override void OnStart()
         {
@@ -44,6 +59,7 @@ namespace Seeker
         public override void OnDestroyView()
         {
             artwork?.Dispose(); artwork = null;
+            scrubbing = false;
             base.OnDestroyView();
         }
         private void Update(object sender, EventArgs e)
@@ -58,9 +74,11 @@ namespace Seeker
             album.Visibility = string.IsNullOrWhiteSpace(p.Album) ? ViewStates.Gone : ViewStates.Visible;
             View.FindViewById<TextView>(Resource.Id.playerQuality).Text = p.Quality;
             View.FindViewById<TextView>(Resource.Id.playerStatus).SetText(p.StatusResource);
-            View.FindViewById<TextView>(Resource.Id.playerElapsed).Text = PlayerUi.Time(p.Position);
+            if (!scrubbing) View.FindViewById<TextView>(Resource.Id.playerElapsed).Text = PlayerUi.Time(p.Position);
             View.FindViewById<TextView>(Resource.Id.playerDuration).Text = p.Duration > 0 ? PlayerUi.Time(p.Duration) : "—";
-            PlayerUi.Progress(View.FindViewById<ProgressBar>(Resource.Id.playerProgress));
+            var seek = View.FindViewById<SeekBar>(Resource.Id.playerProgress);
+            if (!scrubbing) PlayerUi.Progress(seek);
+            seek.Enabled = p.CanSeek;
             PlayerUi.PlayButton(View.FindViewById<ImageButton>(Resource.Id.playerPlayPause));
             View.FindViewById<TextView>(Resource.Id.playerDownloadLabel).Text = string.Format(GetString(Resource.String.miniplayer_download_percent), p.DownloadProgress);
             View.FindViewById<ProgressBar>(Resource.Id.playerDownloadProgress).Progress = p.DownloadProgress;

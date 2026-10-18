@@ -26,3 +26,11 @@ Run this fixture only (avoids unrelated write benchmarks):
 ```powershell
 adb shell am instrument -w -e fixture ProgressivePlaybackTests com.seeker.instrumentationtests/instrumentationtests.TestInstrumentation
 ```
+
+Timestamp seeking checks use the same fixtures. They seek past the initial half,
+append only up to 90%, verify playback advances at the requested timestamp before
+completion, then seek backward while paused:
+
+```powershell
+adb shell am instrument -w -e fixture ProgressiveSeekingTests com.seeker.instrumentationtests/instrumentationtests.TestInstrumentation
+```

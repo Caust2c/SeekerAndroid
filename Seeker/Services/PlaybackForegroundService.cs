@@ -176,7 +176,8 @@ namespace Seeker.Services
             var code = playing ? PlaybackStateCode.Playing : p.WantsPlay ? PlaybackStateCode.Buffering : PlaybackStateCode.Paused;
             using (var builder = new PlaybackState.Builder())
             {
-                builder.SetActions(PlaybackState.ActionPlay | PlaybackState.ActionPause | PlaybackState.ActionPlayPause | PlaybackState.ActionStop);
+                builder.SetActions(PlaybackState.ActionPlay | PlaybackState.ActionPause | PlaybackState.ActionPlayPause | PlaybackState.ActionStop |
+                    (p.CanSeek ? PlaybackState.ActionSeekTo : 0));
                 builder.SetState(code, p.Position, playing ? 1f : 0f, SystemClock.ElapsedRealtime());
                 using var state = builder.Build();
                 session.SetPlaybackState(state);
@@ -297,6 +298,7 @@ namespace Seeker.Services
         private sealed class SessionCallback : MediaSession.Callback
         {
             public override void OnPlay() => ProgressivePlaybackPlayer.Instance.Play();
+            public override void OnSeekTo(long pos) => ProgressivePlaybackPlayer.Instance.SeekTo(pos);
             public override void OnPause() => ProgressivePlaybackPlayer.Instance.Pause();
             public override void OnStop() => ProgressivePlaybackPlayer.Instance.Close();
         }

@@ -43,6 +43,32 @@ namespace UnitTestCommon
         }
 
         [Test]
+        public async Task ReadBeyondDownloadedPrefixWaitsForTheRequestedBytes()
+        {
+            string path = Path.GetTempFileName();
+            try
+            {
+                using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+                writer.Write(new byte[] { 0, 1, 2, 3 });
+                writer.Flush();
+                using var reader = new GrowingFileReader(new FileStream(path, FileMode.Open,
+                    FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+                var actual = new byte[2];
+                var pending = Task.Run(() => reader.ReadFullyAt(8, actual, 0, 2));
+                Assert.That(System.Threading.SpinWait.SpinUntil(() => reader.IsWaiting, 2000), Is.True);
+                writer.Write(new byte[] { 4, 5, 6, 7 });
+                writer.Flush();
+                Assert.That(pending.IsCompleted, Is.False, "Growth before the requested offset cannot satisfy the seek.");
+                writer.Write(new byte[] { 8, 9, 10, 11 });
+                writer.Flush();
+                Assert.That(await pending.WaitAsync(TimeSpan.FromSeconds(2)), Is.EqualTo(2));
+                Assert.That(actual, Is.EqualTo(new byte[] { 8, 9 }));
+                Assert.That(reader.Length, Is.EqualTo(12), "A future read must not require download completion.");
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
         public async Task NativeFrameReadWaitsForMissingRemainderInsteadOfReturningShortEof()
         {
             string path = Path.GetTempFileName();

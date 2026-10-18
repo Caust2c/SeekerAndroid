@@ -1024,4 +1024,6 @@
     <string name="player_retry">Retry download</string>
     <string name="player_artist_unknown">Artist unavailable</string>
     <string name="playback_notification_channel">Music playback</string>
+    <string name="player_seek">Seek to playback position</string>
+    <string name="playback_seeking">Buffering to selected position</string>
 </resources>

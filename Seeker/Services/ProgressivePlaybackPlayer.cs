@@ -29,7 +29,7 @@ namespace Seeker.Services
         // Only the playback thread calls the native player. UI reads a snapshot.
         private MediaPlayer player;
         private GrowingAudioDataSource source;
-        private bool prepared, wantsPlay, hasFocus, visible, playbackServiceReady;
+        private bool prepared, wantsPlay, hasFocus, visible, playbackServiceReady, seeking;
         private string filename;
         private int resumePosition, duration;
         private AudioMetadata metadata = new AudioMetadata();
@@ -48,6 +48,7 @@ namespace Seeker.Services
         public bool WantsPlay => state.WantsPlay;
         public int Position => state.Position;
         public int Duration => state.Duration;
+        public bool CanSeek => state.Visible && state.Duration > 0;
         public int DownloadProgress => state.DownloadProgress;
         public int StatusResource => state.StatusResource;
         public string Title => string.IsNullOrWhiteSpace(state.Metadata.Title)
@@ -196,6 +197,25 @@ namespace Seeker.Services
                 PublishState();
             });
         }
+        public void SeekTo(long milliseconds)
+        {
+            var snapshot = state;
+            if (!snapshot.Visible || snapshot.Duration <= 0) return;
+            int position = (int)Math.Clamp(milliseconds, 0, snapshot.Duration - 1L);
+            // A decoder may be blocked reading a future byte. Wake it before queuing
+            // release, so another seek, Pause or Close can interrupt a pending seek.
+            int request = CancelReader();
+            Post(() =>
+            {
+                if (!IsCurrent(request) || !visible) return;
+                ReleaseEngine();
+                resumePosition = position;
+                seeking = true;
+                statusResource = wantsPlay ? Resource.String.playback_seeking : Resource.String.playback_paused;
+                PublishState();
+                if (wantsPlay) _ = ResumeWithServiceAsync(request);
+            });
+        }
         public void Close() { CancelReader(); Post(() => Reset()); }
         private void Reset(bool publish = true)
         {
@@ -208,6 +228,7 @@ namespace Seeker.Services
             metadataUri = null;
             metadataBytes = -1;
             resumePosition = duration = 0;
+            seeking = false;
             handler.RemoveCallbacks(tick);
             if (publish) PublishState();
         }
@@ -281,7 +302,7 @@ namespace Seeker.Services
             }
             if (prepared)
             {
-                resumePosition = Math.Max(0, player.CurrentPosition);
+                if (!seeking) resumePosition = Math.Max(0, player.CurrentPosition);
                 duration = Math.Max(0, player.Duration);
             }
             PublishState();
@@ -319,7 +340,9 @@ namespace Seeker.Services
             var engine = new MediaPlayer();
             player = engine;
             engine.SetWakeMode(context, WakeLockFlags.Partial);
-            source = reader == null ? null : new GrowingAudioDataSource(reader);
+            long seekLength = (seeking || resumePosition > 0) &&
+                filename?.EndsWith(".flac", StringComparison.OrdinalIgnoreCase) == true ? item.Size : -1;
+            source = reader == null ? null : new GrowingAudioDataSource(reader, seekLength);
             engine.SetAudioAttributes(new AudioAttributes.Builder()
                 .SetUsage(AudioUsageKind.Media).SetContentType(AudioContentType.Music).Build());
             engine.Prepared += (s, e) => Post(() =>
@@ -327,8 +350,21 @@ namespace Seeker.Services
                 if (!ReferenceEquals(player, engine) || !IsCurrent(request)) return;
                 prepared = true;
                 Android.Util.Log.Info("SeekerPlayback", "Prepared native decoder; progressive=" + (reader != null));
-                if (resumePosition > 0) engine.SeekTo(resumePosition);
+                if (resumePosition > 0 || seeking)
+                {
+                    seeking = true;
+                    statusResource = Resource.String.playback_seeking;
+                    engine.SeekTo(resumePosition);
+                }
+                // Let the native pipeline run its asynchronous seek/preroll;
+                // keep displaying the target until SeekComplete confirms it.
                 if (wantsPlay) Start();
+                Refresh();
+            });
+            engine.SeekComplete += (s, e) => Post(() =>
+            {
+                if (!ReferenceEquals(player, engine) || !IsCurrent(request)) return;
+                seeking = false;
                 Refresh();
             });
             engine.Completion += (s, e) => Post(() =>
@@ -415,7 +451,8 @@ namespace Seeker.Services
         {
             int progress = item?.State.HasFlag(TransferStates.Succeeded) == true ? 100
                 : item?.Size > 0 ? (int)Math.Clamp(item.BytesTransferred * 100.0 / item.Size, 0, 100) : 0;
-            int status = activeReader?.IsWaiting == true && wantsPlay ? Resource.String.playback_buffering : statusResource;
+            int status = wantsPlay && seeking ? Resource.String.playback_seeking
+                : activeReader?.IsWaiting == true && wantsPlay ? Resource.String.playback_buffering : statusResource;
             bool failed = item?.Failed == true && !item.InProcessing;
             if (failed && (!prepared || activeReader?.IsWaiting == true))
                 status = item.State.HasFlag(TransferStates.TimedOut) ? Resource.String.playback_peer_timeout : Resource.String.playback_download_failed;

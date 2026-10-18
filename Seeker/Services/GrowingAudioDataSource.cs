@@ -6,20 +6,29 @@ namespace Seeker.Services
     internal sealed class GrowingAudioDataSource : MediaDataSource
     {
         public GrowingFileReader Reader { get; }
+        private readonly long length;
         internal long LastReadPosition { get; private set; }
-        public GrowingAudioDataSource(GrowingFileReader reader)
+        public GrowingAudioDataSource(GrowingFileReader reader, long length = -1)
         {
             Reader = reader;
+            this.length = length > 0 ? length : -1;
         }
 
         // An unfinished download is an unknown-length source. Advertising the final
         // size lets extractors probe missing tail metadata during preparation.
-        public override long Size => -1;
+        // A seek session can supply the peer's final size: libFLAC requires it for
+        // timestamp seeks. Missing bytes still block in Reader, never return EOF.
+        public override long Size => length;
         public override int ReadAt(long position, byte[] buffer, int offset, int count)
         {
             try
             {
                 LastReadPosition = position;
+                if (length > 0)
+                {
+                    if (position >= length) return -1;
+                    count = (int)System.Math.Min(count, length - position);
+                }
 #if DEBUG
                 long available = Reader.Length;
                 if (available > 0 && count > 0 && (position >= available || count > available - position))
